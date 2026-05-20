@@ -24,89 +24,47 @@
       z-index: 10;
       min-width: 260px;
     }
-    #hud .title {
-      font-size: 14px;
-      font-weight: bold;
-      color: #ffdd00;
-      border-bottom: 1px solid #ffdd0044;
-      padding-bottom: 6px;
-      margin-bottom: 6px;
-    }
+    #hud .title  { font-size: 14px; font-weight: bold; color: #ffdd00;
+                   border-bottom: 1px solid #ffdd0044; padding-bottom: 6px; margin-bottom: 6px; }
     #hud .check  { color: #00ff99; }
     #hud .active { color: #ffdd00; font-weight: bold; }
     #hud .hint   { color: #445566; margin-top: 8px; font-size: 11px; }
-    #hud .mode   {
-      margin-top: 10px;
-      padding: 5px 8px;
-      border-radius: 4px;
-      font-weight: bold;
-      font-size: 12px;
-      letter-spacing: 0.5px;
-      transition: background 0.2s;
-    }
+    #hud .mode   { margin-top: 10px; padding: 5px 8px; border-radius: 4px;
+                   font-weight: bold; font-size: 12px; letter-spacing: 0.5px; }
     #hud .mode.normal { background: #0a2a0a; color: #00ff99; border: 1px solid #00ff9944; }
     #hud .mode.debug  { background: #2a2500; color: #ffdd00; border: 1px solid #ffdd0066; }
 
     #milestone-badge {
-      position: fixed;
-      top: 16px; right: 16px;
-      font-size: 13px;
-      font-weight: bold;
-      color: #fff;
-      background: #2a2500;
-      border: 2px solid #ffdd00;
-      padding: 8px 14px;
-      border-radius: 6px;
-      letter-spacing: 1px;
-      z-index: 10;
+      position: fixed; top: 16px; right: 16px;
+      font-size: 13px; font-weight: bold; color: #fff;
+      background: #2a2500; border: 2px solid #ffdd00;
+      padding: 8px 14px; border-radius: 6px; letter-spacing: 1px; z-index: 10;
     }
 
-    /* Depth scale bar — bottom right */
     #depth-scale {
-      position: fixed;
-      bottom: 24px; right: 20px;
-      width: 16px; height: 140px;
-      border-radius: 4px;
-      background: linear-gradient(to bottom, #ffffff, #000000);
-      border: 1px solid #333;
-      z-index: 10;
-      opacity: 0;
-      transition: opacity 0.3s;
+      position: fixed; bottom: 24px; right: 20px;
+      width: 16px; height: 140px; border-radius: 4px;
+      background: linear-gradient(to bottom, #fff8ee, #0d1933);
+      border: 1px solid #333; z-index: 10;
+      opacity: 0; transition: opacity 0.3s;
     }
     #depth-scale.visible { opacity: 1; }
     #depth-scale-labels {
-      position: fixed;
-      bottom: 22px; right: 42px;
-      font-size: 10px;
-      color: #667788;
-      z-index: 10;
-      text-align: right;
-      opacity: 0;
-      transition: opacity 0.3s;
-      line-height: 1;
+      position: fixed; bottom: 22px; right: 42px;
+      font-size: 10px; color: #667788; z-index: 10;
+      text-align: right; opacity: 0; transition: opacity 0.3s; line-height: 1;
     }
     #depth-scale-labels.visible { opacity: 1; }
 
     #stats {
-      position: fixed;
-      bottom: 16px; left: 16px;
-      color: #334455;
-      font-size: 11px;
-      line-height: 1.8;
-      z-index: 10;
+      position: fixed; bottom: 16px; left: 16px;
+      color: #334455; font-size: 11px; line-height: 1.8; z-index: 10;
     }
 
-    /* Pass diagram — shown in debug mode */
     #pass-diagram {
-      position: fixed;
-      bottom: 16px; right: 16px;
-      font-size: 10px;
-      color: #445566;
-      z-index: 10;
-      text-align: right;
-      opacity: 0;
-      transition: opacity 0.3s;
-      line-height: 1.7;
+      position: fixed; bottom: 16px; right: 16px;
+      font-size: 10px; color: #445566; z-index: 10;
+      text-align: right; opacity: 0; transition: opacity 0.3s; line-height: 1.7;
     }
     #pass-diagram.visible { opacity: 1; }
   </style>
@@ -128,14 +86,11 @@
 
   <div id="milestone-badge">🟡 M2</div>
 
-  <!-- Depth scale bar (visible in debug mode) -->
   <div id="depth-scale"></div>
   <div id="depth-scale-labels">
     <div style="margin-bottom:118px">near</div>
     <div>far</div>
   </div>
-
-  <!-- Pass diagram (visible in debug mode) -->
   <div id="pass-diagram">
     PASS 1 → depthTarget (off-screen)<br>
     PASS 2 → screen (DEBUG_DEPTH quad)
@@ -146,40 +101,49 @@
     fps: <span id="fps">—</span> &nbsp;|&nbsp; pass: <span id="pass-info">—</span>
   </div>
 
+  <!-- Three.js must load before the module so THREE is on window -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
-  <script>
+  <script type="module">
     // ═══════════════════════════════════════════════════════
     //  MILESTONE 2 — Depth Buffer Visualisation
     //
-    //  Contract satisfied (contracts/renderPassInterface.js):
-    //    DEPTH_PREPASS  → consumes [scene_geometry]
-    //                   → produces [depth_texture]
-    //    DEBUG_DEPTH    → consumes [depth_texture]
-    //                   → produces [colour_buffer → screen]
+    //  Modules used:
+    //    utils/orbitControls.js  ← input → spherical coords → camera
+    //    utils/depthUtils.js     ← createDepthTarget, resizeDepthTarget
+    //    shaders/debug.vert.glsl ← fullscreen quad vertex
+    //    shaders/debug.frag.glsl ← linearise + tinted greyscale depth
     //
-    //  Frame loop (M2):  DEPTH_PREPASS → DEBUG_DEPTH | FORWARD
+    //  Frame loop (M2):
+    //    DEPTH_PREPASS → DEBUG_DEPTH (D key on)
+    //    DEPTH_PREPASS → FORWARD     (D key off)
     // ═══════════════════════════════════════════════════════
 
+    import { createOrbitControls } from './utils/orbitControls.js';
+    import { createDepthTarget, resizeDepthTarget } from './utils/depthUtils.js';
+
+    // ── Fetch GLSL source files ──────────────────────────
+    const [debugVert, debugFrag] = await Promise.all([
+      fetch('./shaders/debug.vert.glsl').then(r => r.text()),
+      fetch('./shaders/debug.frag.glsl').then(r => r.text()),
+    ]);
+
+    // ── Renderer ─────────────────────────────────────────
     let W = window.innerWidth;
     let H = window.innerHeight;
 
-    // ── Renderer ──────────────────────────────────────────
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       powerPreference: 'high-performance',
     });
     renderer.setSize(W, H);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
-    renderer.outputEncoding    = THREE.sRGBEncoding;
-    renderer.toneMapping       = THREE.ACESFilmicToneMapping;
+    renderer.shadowMap.enabled   = true;
+    renderer.shadowMap.type      = THREE.PCFSoftShadowMap;
+    renderer.outputEncoding      = THREE.sRGBEncoding;
+    renderer.toneMapping         = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
-
-    // CRITICAL: disable auto-clear — we control clearing per pass
-    renderer.autoClear = false;
-
+    renderer.autoClear           = false;   // manual per-pass clearing
     document.body.appendChild(renderer.domElement);
 
     // ── Scene ─────────────────────────────────────────────
@@ -189,24 +153,17 @@
 
     // ── Camera ────────────────────────────────────────────
     const camera = new THREE.PerspectiveCamera(60, W / H, 0.05, 300);
-    camera.position.set(0, 4, 14);
-    camera.lookAt(0, 0, 0);
 
     // ── Lights ────────────────────────────────────────────
-    const ambientLight = new THREE.AmbientLight(0x1a2a3a, 1.0);
-    scene.add(ambientLight);
+    scene.add(new THREE.AmbientLight(0x1a2a3a, 1.0));
 
     const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
     keyLight.position.set(6, 12, 8);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.width  = 2048;
     keyLight.shadow.mapSize.height = 2048;
-    keyLight.shadow.camera.near = 0.5;
-    keyLight.shadow.camera.far  = 60;
-    keyLight.shadow.camera.left   = -15;
-    keyLight.shadow.camera.right  =  15;
-    keyLight.shadow.camera.top    =  15;
-    keyLight.shadow.camera.bottom = -15;
+    Object.assign(keyLight.shadow.camera, { near: 0.5, far: 60,
+      left: -15, right: 15, top: 15, bottom: -15 });
     keyLight.shadow.bias = -0.001;
     scene.add(keyLight);
 
@@ -219,33 +176,30 @@
     scene.add(fillLight);
 
     // ── Occluder: Cube ────────────────────────────────────
-    const cubeGeo = new THREE.BoxGeometry(3.0, 3.0, 3.0);
-    const cubeMat = new THREE.MeshStandardMaterial({
-      color: 0x3344aa, roughness: 0.35, metalness: 0.45,
-    });
-    const cube = new THREE.Mesh(cubeGeo, cubeMat);
+    const cubeGeo = new THREE.BoxGeometry(3, 3, 3);
+    const cube    = new THREE.Mesh(cubeGeo,
+      new THREE.MeshStandardMaterial({ color: 0x3344aa, roughness: 0.35, metalness: 0.45 }));
     cube.position.set(0, 0, 0);
     cube.castShadow = cube.receiveShadow = true;
-    scene.add(cube);
-
-    const wireframe = new THREE.LineSegments(
+    cube.add(new THREE.LineSegments(
       new THREE.EdgesGeometry(cubeGeo),
       new THREE.LineBasicMaterial({ color: 0x6677ff })
-    );
-    cube.add(wireframe);
+    ));
+    scene.add(cube);
 
     // ── Target: Sphere ────────────────────────────────────
-    const sphereGeo = new THREE.SphereGeometry(1.3, 48, 48);
-    const sphereMat = new THREE.MeshStandardMaterial({
-      color: 0x00ff88, roughness: 0.15, metalness: 0.55,
-      emissive: new THREE.Color(0x003311),
-    });
-    const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(1.3, 48, 48),
+      new THREE.MeshStandardMaterial({
+        color: 0x00ff88, roughness: 0.15, metalness: 0.55,
+        emissive: new THREE.Color(0x003311),
+      })
+    );
     sphere.position.set(0, 0, -5.5);
     sphere.castShadow = sphere.receiveShadow = true;
     scene.add(sphere);
 
-    // ── Ground ────────────────────────────────────────────
+    // ── Ground + Grid ─────────────────────────────────────
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(60, 60),
       new THREE.MeshStandardMaterial({ color: 0x0a0a14, roughness: 0.95 })
@@ -254,125 +208,37 @@
     ground.position.y = -2.1;
     ground.receiveShadow = true;
     scene.add(ground);
-
     const grid = new THREE.GridHelper(60, 30, 0x111133, 0x0a0a1a);
     grid.position.y = -2.09;
     scene.add(grid);
 
-    scene.add(new THREE.AxesHelper(2));
+    // ── Orbit controls (module) ───────────────────────────
+    const { state: orbitState } = createOrbitControls(
+      camera,
+      renderer.domElement,
+      { theta: 0.3, phi: Math.PI / 5, radius: 14 }
+    );
 
-    // ══════════════════════════════════════════════════════
-    //  M2: DEPTH RENDER TARGET
-    //  Contract: contracts/renderPassInterface.js → depth_texture
-    //    type:      THREE.DepthTexture
-    //    format:    THREE.DepthFormat
-    //    dataType:  THREE.UnsignedShortType
-    //    filtering: NearestFilter (both)
-    // ══════════════════════════════════════════════════════
+    // ── Depth target (module) ─────────────────────────────
+    const depthObj = createDepthTarget(W, H);
 
-    const depthTexture = new THREE.DepthTexture(W, H);
-    depthTexture.type      = THREE.UnsignedShortType;
-    depthTexture.format    = THREE.DepthFormat;
-    depthTexture.minFilter = THREE.NearestFilter;
-    depthTexture.magFilter = THREE.NearestFilter;
-
-    const depthTarget = new THREE.WebGLRenderTarget(W, H, {
-      minFilter:    THREE.NearestFilter,
-      magFilter:    THREE.NearestFilter,
-      depthTexture: depthTexture,
-      depthBuffer:  true,
-    });
-
-    console.log('%c[M2] depthTarget created ✅', 'color:#ffdd00; font-weight:bold');
-    console.log('  depthTexture format:', depthTexture.format === THREE.DepthFormat
-      ? 'DepthFormat ✅' : 'WRONG ❌');
-    console.log('  depthTexture type:', depthTexture.type === THREE.UnsignedShortType
-      ? 'UnsignedShortType ✅' : 'WRONG ❌');
-
-    // ══════════════════════════════════════════════════════
-    //  M2: DEBUG DEPTH PASS
-    //  Contract: contracts/renderPassInterface.js → DEBUG_DEPTH
-    //    consumes: [depth_texture]
-    //    produces: [colour_buffer → screen]
-    //
-    //  Full-screen quad with an OrthographicCamera covering
-    //  NDC space exactly [-1,1].  The ShaderMaterial samples
-    //  depthTexture, linearises the raw value, and outputs
-    //  brightness = 1 - (linearDepth / far)
-    //  → closer = brighter (white), farther = darker (black)
-    // ══════════════════════════════════════════════════════
-
-    // Orthographic camera that maps the quad exactly to NDC
+    // ── Debug depth pass ──────────────────────────────────
     const debugCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     const debugScene  = new THREE.Scene();
 
-    // ── Debug vertex shader ────────────────────────────────
-    const DEBUG_VERT = /* glsl */`
-      varying vec2 vUv;
-      void main() {
-        vUv         = uv;
-        gl_Position = vec4(position, 1.0);
-      }
-    `;
-
-    // ── Debug fragment shader ──────────────────────────────
-    // Linearises the raw depth (non-linear, hyperbolic) to
-    // camera-space metres, then normalises by far for display.
-    const DEBUG_FRAG = /* glsl */`
-      precision highp float;
-
-      uniform sampler2D uDepthTexture;
-      uniform float     uNear;
-      uniform float     uFar;
-
-      varying vec2 vUv;
-
-      // Convert raw depth buffer value [0,1] to linear camera-space depth.
-      // Raw depth follows z = (f+n)/(f-n) + (-2fn/(f-n))/z_eye  (hyperbolic).
-      // Source: contracts/shaderInterface.js → lineariseDepth
-      float lineariseDepth(float raw) {
-        float z = raw * 2.0 - 1.0;                           // NDC z
-        return (2.0 * uNear * uFar) / (uFar + uNear - z * (uFar - uNear));
-      }
-
-      void main() {
-        float raw     = texture2D(uDepthTexture, vUv).r;
-        float linZ    = lineariseDepth(raw);
-        float norm    = clamp(linZ / uFar, 0.0, 1.0);
-
-        // Invert so closer = brighter (more intuitive for depth debugging)
-        float brightness = 1.0 - norm;
-
-        // Slight colour tint — warmer near, cooler far
-        // Makes it easier to read depth gradients than pure greyscale
-        vec3 nearTint = vec3(1.00, 0.95, 0.85);  // warm white
-        vec3 farTint  = vec3(0.05, 0.10, 0.20);  // cold dark blue
-        vec3 color    = mix(farTint, nearTint, brightness);
-
-        gl_FragColor = vec4(color, 1.0);
-      }
-    `;
-
     const debugMaterial = new THREE.ShaderMaterial({
       uniforms: {
-        uDepthTexture: { value: depthTarget.depthTexture },
+        uDepthTexture: { value: depthObj.depthTexture },
         uNear:         { value: camera.near },
         uFar:          { value: camera.far  },
       },
-      vertexShader:   DEBUG_VERT,
-      fragmentShader: DEBUG_FRAG,
+      vertexShader:   debugVert,
+      fragmentShader: debugFrag,
       depthWrite: false,
       depthTest:  false,
     });
 
-    // PlaneGeometry(2,2) fills NDC [-1,1] exactly with the ortho camera
-    const debugQuad = new THREE.Mesh(
-      new THREE.PlaneGeometry(2, 2),
-      debugMaterial
-    );
-    debugScene.add(debugQuad);
-
-    console.log('%c[M2] Debug depth pass ready ✅', 'color:#ffdd00; font-weight:bold');
+    debugScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), debugMaterial));
 
     // ── Mode toggle ───────────────────────────────────────
     let debugDepth = false;
@@ -383,169 +249,50 @@
 
     function setDebugMode(on) {
       debugDepth = on;
-      if (on) {
-        modeEl.textContent = '● DEPTH DEBUG VIEW';
-        modeEl.className   = 'mode debug';
-        scaleEl.classList.add('visible');
-        labelsEl.classList.add('visible');
-        passEl.classList.add('visible');
-      } else {
-        modeEl.textContent = '● NORMAL VIEW';
-        modeEl.className   = 'mode normal';
-        scaleEl.classList.remove('visible');
-        labelsEl.classList.remove('visible');
-        passEl.classList.remove('visible');
-      }
+      modeEl.textContent = on ? '● DEPTH DEBUG VIEW' : '● NORMAL VIEW';
+      modeEl.className   = `mode ${on ? 'debug' : 'normal'}`;
+      scaleEl.classList.toggle('visible', on);
+      labelsEl.classList.toggle('visible', on);
+      passEl.classList.toggle('visible', on);
     }
 
     window.addEventListener('keydown', e => {
       if (e.key === 'd' || e.key === 'D') setDebugMode(!debugDepth);
     });
 
-    // ── Orbit controls (carried from M1) ─────────────────
-    const orbitState = {
-      theta: 0.3, phi: Math.PI / 5, radius: 14,
-      target: new THREE.Vector3(0, 0, 0),
-      leftDown: false, rightDown: false, lastX: 0, lastY: 0,
-    };
-
-    function updateCamera() {
-      const { theta, phi, radius, target } = orbitState;
-      camera.position.set(
-        target.x + radius * Math.sin(phi) * Math.sin(theta),
-        target.y + radius * Math.cos(phi),
-        target.z + radius * Math.sin(phi) * Math.cos(theta)
-      );
-      camera.lookAt(target);
-    }
-
-    const canvas = renderer.domElement;
-    canvas.addEventListener('mousedown', e => {
-      if (e.button === 0) orbitState.leftDown  = true;
-      if (e.button === 2) orbitState.rightDown = true;
-      orbitState.lastX = e.clientX; orbitState.lastY = e.clientY;
-    });
-    canvas.addEventListener('contextmenu', e => e.preventDefault());
-    window.addEventListener('mouseup', () => {
-      orbitState.leftDown = orbitState.rightDown = false;
-    });
-    window.addEventListener('mousemove', e => {
-      const dx = e.clientX - orbitState.lastX;
-      const dy = e.clientY - orbitState.lastY;
-      orbitState.lastX = e.clientX; orbitState.lastY = e.clientY;
-      if (orbitState.leftDown) {
-        orbitState.theta -= dx * 0.006;
-        orbitState.phi = Math.max(0.08, Math.min(Math.PI - 0.08,
-                         orbitState.phi + dy * 0.006));
-        updateCamera();
-      }
-      if (orbitState.rightDown) {
-        const s = orbitState.radius * 0.001;
-        const right = new THREE.Vector3();
-        right.crossVectors(camera.getWorldDirection(new THREE.Vector3()),
-                           camera.up).negate().normalize();
-        orbitState.target.addScaledVector(right, dx * s);
-        orbitState.target.addScaledVector(camera.up, -dy * s);
-        updateCamera();
-      }
-    });
-    canvas.addEventListener('wheel', e => {
-      e.preventDefault();
-      orbitState.radius = Math.max(2, Math.min(80,
-                          orbitState.radius + e.deltaY * 0.025));
-      updateCamera();
-    }, { passive: false });
-
-    let lastTouchDist = 0;
-    canvas.addEventListener('touchstart', e => {
-      if (e.touches.length === 1) {
-        orbitState.leftDown = true;
-        orbitState.lastX = e.touches[0].clientX;
-        orbitState.lastY = e.touches[0].clientY;
-      }
-      if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        lastTouchDist = Math.sqrt(dx*dx + dy*dy);
-      }
-    }, { passive: true });
-    canvas.addEventListener('touchend', () => { orbitState.leftDown = false; }, { passive: true });
-    canvas.addEventListener('touchmove', e => {
-      if (e.touches.length === 1 && orbitState.leftDown) {
-        const dx = e.touches[0].clientX - orbitState.lastX;
-        const dy = e.touches[0].clientY - orbitState.lastY;
-        orbitState.theta -= dx * 0.006;
-        orbitState.phi = Math.max(0.08, Math.min(Math.PI - 0.08, orbitState.phi + dy * 0.006));
-        orbitState.lastX = e.touches[0].clientX;
-        orbitState.lastY = e.touches[0].clientY;
-        updateCamera();
-      }
-      if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        orbitState.radius = Math.max(2, Math.min(80,
-                            orbitState.radius * (lastTouchDist / dist)));
-        lastTouchDist = dist;
-        updateCamera();
-      }
-    }, { passive: true });
-
-    updateCamera();
-
-    // ══════════════════════════════════════════════════════
-    //  FRAME LOOP — M2
-    //  Contract: FRAME_LOOP.M2 = ['DEPTH_PREPASS', 'DEBUG_DEPTH']
-    //
-    //  Pass 1 — DEPTH_PREPASS
-    //    setRenderTarget(depthTarget)
-    //    clear + render scene → writes depth_texture
-    //
-    //  Pass 2a — DEBUG_DEPTH  (D key ON)
-    //    setRenderTarget(null)
-    //    render debugScene with debugCamera → greyscale depth
-    //
-    //  Pass 2b — FORWARD  (D key OFF)
-    //    setRenderTarget(null)
-    //    render scene normally → colour output
-    // ══════════════════════════════════════════════════════
-
-    const clock     = new THREE.Clock();
-    let frameCount  = 0;
-    let lastFPSTime = performance.now();
-
-    const camPosEl  = document.getElementById('cam-pos');
-    const fpsEl     = document.getElementById('fps');
+    // ── Animation loop ────────────────────────────────────
+    const clock      = new THREE.Clock();
+    let frameCount   = 0;
+    let lastFPSTime  = performance.now();
+    const camPosEl   = document.getElementById('cam-pos');
+    const fpsEl      = document.getElementById('fps');
     const passInfoEl = document.getElementById('pass-info');
 
     function animate() {
       requestAnimationFrame(animate);
       const t = clock.getElapsedTime();
 
-      // Animations (carry from M1)
-      cube.rotation.y      = t * 0.25;
-      sphere.position.y    = Math.sin(t * 0.8) * 0.3;
+      cube.rotation.y   = t * 0.25;
+      sphere.position.y = Math.sin(t * 0.8) * 0.3;
 
-      // ── PASS 1: DEPTH_PREPASS ─────────────────────────
-      renderer.setRenderTarget(depthTarget);
+      // PASS 1 — DEPTH_PREPASS
+      renderer.setRenderTarget(depthObj.target);
       renderer.clear(true, true, true);
       renderer.render(scene, camera);
 
-      // ── PASS 2: SCREEN ────────────────────────────────
+      // PASS 2 — DEBUG_DEPTH or FORWARD
       renderer.setRenderTarget(null);
       renderer.clear(true, true, true);
 
       if (debugDepth) {
-        // DEBUG_DEPTH — fullscreen quad sampling depthTexture
         renderer.render(debugScene, debugCamera);
         passInfoEl.textContent = 'DEPTH_PREPASS → DEBUG_DEPTH';
       } else {
-        // FORWARD — normal scene render
         renderer.render(scene, camera);
         passInfoEl.textContent = 'DEPTH_PREPASS → FORWARD';
       }
 
-      // ── Stats ─────────────────────────────────────────
+      // Stats
       frameCount++;
       const now = performance.now();
       if (now - lastFPSTime > 500) {
@@ -560,34 +307,26 @@
     animate();
 
     // ── Resize ────────────────────────────────────────────
-    // Contract: M2_RESIZE — depthTarget resizes with window
     window.addEventListener('resize', () => {
       W = window.innerWidth;
       H = window.innerHeight;
-
       renderer.setSize(W, H);
-
       camera.aspect = W / H;
       camera.updateProjectionMatrix();
-
-      // Depth target must match viewport exactly
-      depthTarget.setSize(W, H);
-
-      // Keep uniforms in sync after resize
+      resizeDepthTarget(depthObj, W, H);
       debugMaterial.uniforms.uNear.value = camera.near;
       debugMaterial.uniforms.uFar.value  = camera.far;
-
-      console.log(`[M2] depthTarget resized → ${W}×${H}`);
     });
 
-    // ── M2 contract validation ────────────────────────────
-    console.group('%c[M2] Contract validation', 'color:#ffdd00; font-weight:bold');
-    console.log('M2_TARGET     depthTarget created:', !!depthTarget);
-    console.log('M2_DEPTH_FMT  DepthFormat:', depthTexture.format === THREE.DepthFormat);
-    console.log('M2_DEPTH_FMT  UnsignedShortType:', depthTexture.type === THREE.UnsignedShortType);
-    console.log('M2_PREPASS    autoClear disabled:', !renderer.autoClear);
-    console.log('M2_DEBUG_QUAD debugScene has mesh:', debugScene.children.length > 0);
-    console.log('M2_TOGGLE     D key listener registered ✅');
+    // ── Console validation ────────────────────────────────
+    console.group('%c[M2] Module validation', 'color:#ffdd00;font-weight:bold');
+    console.log('orbitControls  imported ✅ | phi fix applied (- dy)');
+    console.log('depthUtils     imported ✅ | createDepthTarget, resizeDepthTarget');
+    console.log('debug.vert     fetched  ✅ | length:', debugVert.length, 'chars');
+    console.log('debug.frag     fetched  ✅ | length:', debugFrag.length, 'chars');
+    console.log('depthTexture   format:', depthObj.depthTexture.format === THREE.DepthFormat
+      ? 'DepthFormat ✅' : 'WRONG ❌');
+    console.log('autoClear:', renderer.autoClear === false ? 'disabled ✅' : 'WRONG ❌');
     console.groupEnd();
   </script>
 </body>
