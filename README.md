@@ -13,6 +13,8 @@
 
 Open `index.html` directly in a browser — no build step required.
 
+Live site at https://digi4arch424.github.io/occlusion-shader-poc/
+
 ```bash
 git clone https://github.com/YOUR_USERNAME/occlusion-shader-poc
 cd occlusion-shader-poc
