@@ -1,39 +1,41 @@
+// shaders/vertex.glsl
 // ─────────────────────────────────────────────────────────────
-//  vertex.glsl
-//  Occlusion Shader PoC — Shared Vertex Shader
+//  Occlusion shader — vertex stage
+//  Used by: OCCLUSION_FORWARD pass (Milestone 3+)
 //
-//  Milestones that use this:
-//    M3  →  passes vScreenUV for depth texture sampling
-//    M4  →  same, occlusion logic lives in fragment.glsl
-//    M5  →  adds vWorldNormal for lighting blend
+//  Contract satisfied (contracts/shaderInterface.js → VERTEX_OUTPUTS):
+//    vScreenUV    vec2   M3  screen-space UV for depth texture lookup
+//    vWorldNormal vec3   M5  world-space normal for lighting
+//    vWorldPos    vec3   M5  world-space position
+//    vViewDepth   float  M2  camera-space depth for debug HUD
 // ─────────────────────────────────────────────────────────────
 
-varying vec2  vScreenUV;    // screen-space UV for depth texture lookup
-varying vec3  vWorldNormal; // world-space normal for shading
-varying vec3  vWorldPos;    // world-space position
-varying float vViewDepth;   // linear camera-space depth (debug)
+varying vec2  vScreenUV;
+varying vec3  vWorldNormal;
+varying vec3  vWorldPos;
+varying float vViewDepth;
 
 void main() {
 
-  // Standard MVP transform
-  vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-  vec4 clipPosition  = projectionMatrix * viewMatrix * worldPosition;
+  // ── Standard MVP transform ───────────────────────────────
+  vec4 worldPos = modelMatrix * vec4(position, 1.0);
+  vec4 clipPos  = projectionMatrix * viewMatrix * worldPos;
+  gl_Position   = clipPos;
 
-  gl_Position = clipPosition;
+  // ── Screen UV (M3) ───────────────────────────────────────
+  // Perspective divide converts clip coords to NDC [-1, 1].
+  // Remap to [0, 1] for texture sampling.
+  // This UV is then used in the fragment shader to sample the
+  // depth texture at exactly this fragment's screen pixel.
+  vScreenUV = (clipPos.xy / clipPos.w) * 0.5 + 0.5;
 
-  // ── Screen UV ─────────────────────────────────────────────
-  // Perspective-correct screen UV from clip coords.
-  // Used to sample the pre-rendered depth texture in the
-  // fragment shader at exactly this fragment's screen pixel.
-  vScreenUV = (clipPosition.xy / clipPosition.w) * 0.5 + 0.5;
-
-  // ── World-space outputs ───────────────────────────────────
-  vWorldPos    = worldPosition.xyz;
+  // ── World-space outputs (M5) ─────────────────────────────
+  vWorldPos    = worldPos.xyz;
   vWorldNormal = normalize(mat3(modelMatrix) * normal);
 
-  // ── Camera-space depth (for debug) ───────────────────────
-  // Negative Z in Three.js view space = in front of camera
-  vec4 viewPos = viewMatrix * worldPosition;
-  vViewDepth   = -viewPos.z;  // positive = in front of camera
+  // ── Camera-space depth (debug) ───────────────────────────
+  // -viewPos.z = positive depth in front of camera
+  vec4 viewPos = viewMatrix * worldPos;
+  vViewDepth   = -viewPos.z;
 
 }

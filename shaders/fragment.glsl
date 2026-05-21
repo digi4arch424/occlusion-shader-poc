@@ -1,119 +1,104 @@
+// shaders/fragment.glsl
 // ─────────────────────────────────────────────────────────────
-//  fragment.glsl
-//  Occlusion Shader PoC — Core Fragment Shader
+//  Occlusion shader — fragment stage
+//  Used by: OCCLUSION_FORWARD pass (Milestone 3+)
 //
-//  Milestone progression:
-//    M3  →  depth sampling + linearisation (debug output)
-//    M4  →  occlusion test   (green = visible, red = occluded)
-//    M5  →  visual effects   (fade + glow pulse)
-//    M6  →  stress test      (same shader, more occluders)
+//  Milestone progression (add one thing per milestone):
+//    M3  depth sampling + linearisation → debug colour output
+//    M4  occlusion test → green / red
+//    M5  visual effects → fade + glow pulse
+//
+//  Contract satisfied (contracts/shaderInterface.js → FRAGMENT_UNIFORMS):
+//    uDepthTexture  sampler2D  M2  pre-rendered scene depth
+//    uResolution    vec2       M3  viewport size in pixels
+//    uCameraNear    float      M3  camera near clip
+//    uCameraFar     float      M3  camera far clip
+//    uDepthBias     float      M4  self-occlusion guard (added at M4)
+//    uTime          float      M5  elapsed seconds for pulse (added at M5)
+//    uBaseColor     vec3       M5  diffuse colour (added at M5)
+//    uLightDir      vec3       M5  key light direction (added at M5)
 // ─────────────────────────────────────────────────────────────
 
 precision highp float;
 
-// ── Varyings from vertex shader ───────────────────────────────
+// ── Uniforms (M3) ────────────────────────────────────────────
+uniform sampler2D uDepthTexture;
+uniform vec2      uResolution;
+uniform float     uCameraNear;
+uniform float     uCameraFar;
+
+// ── Varyings from vertex shader ──────────────────────────────
 varying vec2  vScreenUV;
 varying vec3  vWorldNormal;
 varying vec3  vWorldPos;
 varying float vViewDepth;
 
-// ── Uniforms ──────────────────────────────────────────────────
-uniform sampler2D uDepthTexture;   // pre-rendered scene depth (Pass 1)
-uniform vec2      uResolution;     // viewport size in pixels
-uniform float     uCameraNear;     // camera.near
-uniform float     uCameraFar;      // camera.far
-uniform float     uTime;           // elapsed seconds (for pulse effect)
-uniform vec3      uBaseColor;      // object's base diffuse colour
-uniform vec3      uLightDir;       // normalised key light direction
-uniform float     uDepthBias;      // small offset to prevent self-occlusion
-
-// ── Utility: linearise a raw depth buffer sample ─────────────
+// ── Linearise depth ──────────────────────────────────────────
+// Raw depth buffer values are non-linear (hyperbolic) — more
+// precision near the camera, less far away. Both fragDepth and
+// sceneDepth must be linearised before comparison, otherwise
+// the test produces incorrect results at depth discontinuities.
 //
-//  Raw depth is stored as a non-linear (perspective-hyperbolic)
-//  value in [0, 1].  We convert to a linear camera-space distance
-//  so that fragDepth > sceneDepth is a meaningful comparison.
-//
-//  Formula derivation:
-//    NDC z  = rawDepth * 2.0 - 1.0
-//    linearZ = (2 * near * far) / (far + near - NDC_z * (far - near))
-//
-float lineariseDepth(float rawDepth, float near, float far) {
-  float ndcZ = rawDepth * 2.0 - 1.0;
-  return (2.0 * near * far) / (far + near - ndcZ * (far - near));
+// Formula: linearZ = (2·near·far) / (far + near − NDC_z·(far − near))
+//          where NDC_z = raw × 2.0 − 1.0
+float lineariseDepth(float raw) {
+  float z = raw * 2.0 - 1.0;
+  return (2.0 * uCameraNear * uCameraFar)
+       / (uCameraFar + uCameraNear - z * (uCameraFar - uCameraNear));
 }
 
-// ── Utility: simple diffuse + ambient shading ─────────────────
-vec3 shadeSurface(vec3 baseColor, vec3 normal, vec3 lightDir) {
-  float NdotL   = max(dot(normalize(normal), normalize(lightDir)), 0.0);
-  vec3  diffuse = baseColor * NdotL;
-  vec3  ambient = baseColor * 0.25;
-  return ambient + diffuse;
-}
-
-// ─────────────────────────────────────────────────────────────
 void main() {
 
-  // ── STEP 1: Sample pre-rendered scene depth ───────────────
-  //
-  //  vScreenUV was computed in the vertex shader from clip coords.
-  //  We use it to look up the depth value that was written during
-  //  Pass 1 (renderer.setRenderTarget(depthTarget)).
-  //
-  float rawSceneDepth = texture2D(uDepthTexture, vScreenUV).r;
-  float sceneDepth    = lineariseDepth(rawSceneDepth, uCameraNear, uCameraFar);
+  // ── STEP 1: Sample scene depth at this screen position ────
+  // vScreenUV is the perspective-correct screen UV computed
+  // in the vertex shader from clip coords.
+  // We sample the depth texture that was written in DEPTH_PREPASS.
+  float rawScene   = texture2D(uDepthTexture, vScreenUV).r;
+  float sceneDepth = lineariseDepth(rawScene);
 
-  // ── STEP 2: Compute this fragment's linear depth ──────────
-  //
-  //  gl_FragCoord.z is the fragment's raw NDC depth [0,1].
-  //  We linearise it the same way for an apples-to-apples compare.
-  //
-  float rawFragDepth = gl_FragCoord.z;
-  float fragDepth    = lineariseDepth(rawFragDepth, uCameraNear, uCameraFar);
+  // ── STEP 2: This fragment's own linear depth ──────────────
+  // gl_FragCoord.z is the raw NDC depth [0,1] of this fragment.
+  float rawFrag  = gl_FragCoord.z;
+  float fragDepth = lineariseDepth(rawFrag);
 
-  // ── STEP 3: Occlusion test ────────────────────────────────
+  // ── M3 DEBUG OUTPUT ───────────────────────────────────────
+  // Visualise the scene depth sampled at the sphere's screen UV.
+  // This proves vScreenUV is correctly computed — the depth
+  // values shown on the sphere surface must make spatial sense
+  // relative to what the camera can see.
   //
-  //  If this fragment is further from the camera than what was
-  //  rendered in Pass 1, something is in front of it → occluded.
+  // When the cube is between camera and sphere:
+  //   → sampled sceneDepth = cube depth (shallow = warm/bright)
+  // When the sphere is fully visible:
+  //   → sampled sceneDepth = sphere depth (deeper = cooler)
   //
-  //  uDepthBias (≈ 0.02) prevents self-occlusion z-fighting.
-  //
-  bool occluded = fragDepth > sceneDepth + uDepthBias;
+  // Orbit the camera around — the surface colouring must update
+  // correctly. That proves depth sampling is working.
 
-  // occludedFactor: smooth 0.0 (visible) → 1.0 (fully occluded)
-  // Using step() here; swap for smoothstep() for a soft edge.
-  float occludedFactor = step(1.0, float(occluded));
+  float norm       = clamp(sceneDepth / uCameraFar, 0.0, 1.0);
+  float brightness = 1.0 - norm;
 
-  // ── STEP 4: Shading ───────────────────────────────────────
-  vec3 shadedColor = shadeSurface(uBaseColor, vWorldNormal, uLightDir);
+  // Tinted gradient: warm yellow (near/shallow) → cool blue (far/deep)
+  vec3 nearTint = vec3(1.00, 0.85, 0.20);
+  vec3 farTint  = vec3(0.05, 0.15, 0.45);
+  vec3 color    = mix(farTint, nearTint, brightness);
 
-  // ── STEP 5: Visual effect ─────────────────────────────────
-  //
-  //  Visible  → normal shading, full opacity
-  //  Occluded → desaturated + pulsing red-orange glow + fade
-  //
-  float pulse     = 0.55 + 0.45 * sin(uTime * 3.2);
-  vec3  glowColor = vec3(1.0, 0.25 + pulse * 0.15, 0.05);
+  // Subtle sphere surface contour lines to confirm it's 3D, not a flat quad
+  float contour = abs(sin(fragDepth * 2.5)) * 0.08;
+  color += contour;
 
-  // Blend base shading with glow based on occlusion
-  vec3 finalColor = mix(shadedColor, glowColor * pulse, occludedFactor * 0.85);
+  gl_FragColor = vec4(color, 1.0);
 
-  // Fade out when occluded (alpha drops to ~0.18 so it's still hinted)
-  float alpha = mix(1.0, 0.18, occludedFactor);
+  // ── DEBUG SWITCHES ────────────────────────────────────────
+  // Uncomment one at a time to isolate variables:
 
-  // ── DEBUG MODE ────────────────────────────────────────────
-  //  Uncomment ONE of these to debug individual stages:
-  //
-  //  (a) Raw depth texture:
-  //      gl_FragColor = vec4(vec3(rawSceneDepth), 1.0);
-  //
-  //  (b) Linear depth (normalised for display):
-  //      gl_FragColor = vec4(vec3(fragDepth / uCameraFar), 1.0);
-  //
-  //  (c) Hard occlusion:
-  //      gl_FragColor = occluded
-  //        ? vec4(1.0, 0.1, 0.1, 1.0)
-  //        : vec4(0.1, 1.0, 0.4, 1.0);
-  //      return;
+  // (a) Show only this fragment's own depth:
+  // gl_FragColor = vec4(vec3(1.0 - fragDepth / uCameraFar), 1.0);
 
-  gl_FragColor = vec4(finalColor, alpha);
+  // (b) Show only sampled scene depth:
+  // gl_FragColor = vec4(vec3(1.0 - sceneDepth / uCameraFar), 1.0);
+
+  // (c) Show vScreenUV directly (UV coordinates as RG):
+  // gl_FragColor = vec4(vScreenUV, 0.0, 1.0);
+
 }

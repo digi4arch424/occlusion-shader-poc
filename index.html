@@ -3,44 +3,39 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Occlusion PoC — M2: Depth Buffer</title>
+  <title>Occlusion PoC — M3: Depth Access</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #050508; overflow: hidden; font-family: 'Courier New', monospace; }
     canvas { display: block; }
 
     #hud {
-      position: fixed;
-      top: 16px; left: 16px;
-      color: #ffdd00;
-      font-size: 12px;
-      line-height: 2;
-      background: rgba(0,0,0,0.78);
-      padding: 14px 18px;
-      border-radius: 6px;
-      border: 1px solid #ffdd0033;
-      backdrop-filter: blur(8px);
-      pointer-events: none;
-      z-index: 10;
-      min-width: 260px;
+      position: fixed; top: 16px; left: 16px;
+      color: #ff8800; font-size: 12px; line-height: 2;
+      background: rgba(0,0,0,0.78); padding: 14px 18px;
+      border-radius: 6px; border: 1px solid #ff880033;
+      backdrop-filter: blur(8px); pointer-events: none;
+      z-index: 10; min-width: 280px;
     }
-    #hud .title  { font-size: 14px; font-weight: bold; color: #ffdd00;
-                   border-bottom: 1px solid #ffdd0044; padding-bottom: 6px; margin-bottom: 6px; }
+    #hud .title  { font-size: 14px; font-weight: bold; color: #ff8800;
+                   border-bottom: 1px solid #ff880044;
+                   padding-bottom: 6px; margin-bottom: 6px; }
     #hud .check  { color: #00ff99; }
-    #hud .active { color: #ffdd00; font-weight: bold; }
+    #hud .active { color: #ff8800; font-weight: bold; }
     #hud .hint   { color: #445566; margin-top: 8px; font-size: 11px; }
     #hud .mode   { margin-top: 10px; padding: 5px 8px; border-radius: 4px;
                    font-weight: bold; font-size: 12px; letter-spacing: 0.5px; }
-    #hud .mode.normal { background: #0a2a0a; color: #00ff99; border: 1px solid #00ff9944; }
-    #hud .mode.debug  { background: #2a2500; color: #ffdd00; border: 1px solid #ffdd0066; }
+    #hud .mode.normal { background: #1a1000; color: #ff8800; border: 1px solid #ff880055; }
+    #hud .mode.debug  { background: #1a2500; color: #aaff44; border: 1px solid #aaff4455; }
 
     #milestone-badge {
       position: fixed; top: 16px; right: 16px;
       font-size: 13px; font-weight: bold; color: #fff;
-      background: #2a2500; border: 2px solid #ffdd00;
+      background: #1a0e00; border: 2px solid #ff8800;
       padding: 8px 14px; border-radius: 6px; letter-spacing: 1px; z-index: 10;
     }
 
+    /* Depth scale bar */
     #depth-scale {
       position: fixed; bottom: 24px; right: 20px;
       width: 16px; height: 140px; border-radius: 4px;
@@ -56,35 +51,38 @@
     }
     #depth-scale-labels.visible { opacity: 1; }
 
-    #stats {
-      position: fixed; bottom: 16px; left: 16px;
-      color: #334455; font-size: 11px; line-height: 1.8; z-index: 10;
-    }
-
     #pass-diagram {
       position: fixed; bottom: 16px; right: 16px;
       font-size: 10px; color: #445566; z-index: 10;
       text-align: right; opacity: 0; transition: opacity 0.3s; line-height: 1.7;
     }
     #pass-diagram.visible { opacity: 1; }
+
+    #stats {
+      position: fixed; bottom: 16px; left: 16px;
+      color: #334455; font-size: 11px; line-height: 1.8; z-index: 10;
+    }
   </style>
 </head>
 <body>
 
   <div id="hud">
-    <div class="title">🟡 MILESTONE 2 — Depth Buffer</div>
+    <div class="title">🟠 MILESTONE 3 — Depth Access</div>
     <div class="check">✅ M1: Scene + camera + lights</div>
-    <div class="active">▶ WebGLRenderTarget + DepthTexture</div>
-    <div class="active">▶ Two-pass frame loop</div>
-    <div class="active">▶ Greyscale depth debug quad</div>
-    <div id="mode-indicator" class="mode normal">● NORMAL VIEW</div>
+    <div class="check">✅ M2: Depth target + two-pass loop</div>
+    <div class="active">▶ Sphere → ShaderMaterial</div>
+    <div class="active">▶ vScreenUV from clip coords</div>
+    <div class="active">▶ Depth sampled + linearised per fragment</div>
+    <div id="mode-indicator" class="mode normal">● DEPTH SAMPLING VIEW</div>
     <div class="hint">
       Left drag → orbit &nbsp;|&nbsp; Scroll → zoom<br>
-      <strong style="color:#ffdd00">D</strong> → toggle depth debug view
+      <strong style="color:#ff8800">Sphere surface = sampled scene depth</strong><br>
+      warm/bright = near &nbsp;|&nbsp; cool/dark = far<br>
+      <strong style="color:#aaff44">D</strong> → toggle fullscreen depth debug
     </div>
   </div>
 
-  <div id="milestone-badge">🟡 M2</div>
+  <div id="milestone-badge">🟠 M3</div>
 
   <div id="depth-scale"></div>
   <div id="depth-scale-labels">
@@ -101,34 +99,36 @@
     fps: <span id="fps">—</span> &nbsp;|&nbsp; pass: <span id="pass-info">—</span>
   </div>
 
-  <!-- Three.js must load before the module so THREE is on window -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
   <script type="module">
     // ═══════════════════════════════════════════════════════
-    //  MILESTONE 2 — Depth Buffer Visualisation
+    //  MILESTONE 3 — Screen-Space Depth Access in Shader
     //
-    //  Modules used:
-    //    utils/orbitControls.js  ← input → spherical coords → camera
-    //    utils/depthUtils.js     ← createDepthTarget, resizeDepthTarget
-    //    shaders/debug.vert.glsl ← fullscreen quad vertex
-    //    shaders/debug.frag.glsl ← linearise + tinted greyscale depth
+    //  What changed from M2:
+    //    + shaders/vertex.glsl   computes vScreenUV from clip coords
+    //    + shaders/fragment.glsl samples uDepthTexture via vScreenUV,
+    //                            linearises both depths, debug output
+    //    + sphere swapped from MeshStandardMaterial → ShaderMaterial
+    //    + uniforms wired: uDepthTexture, uResolution, uCameraNear, uCameraFar
     //
-    //  Frame loop (M2):
-    //    DEPTH_PREPASS → DEBUG_DEPTH (D key on)
-    //    DEPTH_PREPASS → FORWARD     (D key off)
+    //  Frame loop (M3):
+    //    DEPTH_PREPASS → OCCLUSION_FORWARD
+    //    D key shows fullscreen DEBUG_DEPTH for cross-reference
     // ═══════════════════════════════════════════════════════
 
     import { createOrbitControls } from './utils/orbitControls.js';
     import { createDepthTarget, resizeDepthTarget } from './utils/depthUtils.js';
 
-    // ── Fetch GLSL source files ──────────────────────────
-    const [debugVert, debugFrag] = await Promise.all([
+    // ── Fetch all GLSL files in parallel ──────────────────
+    const [occVert, occFrag, debugVert, debugFrag] = await Promise.all([
+      fetch('./shaders/vertex.glsl').then(r => r.text()),
+      fetch('./shaders/fragment.glsl').then(r => r.text()),
       fetch('./shaders/debug.vert.glsl').then(r => r.text()),
       fetch('./shaders/debug.frag.glsl').then(r => r.text()),
     ]);
 
-    // ── Renderer ─────────────────────────────────────────
+    // ── Renderer ──────────────────────────────────────────
     let W = window.innerWidth;
     let H = window.innerHeight;
 
@@ -143,7 +143,7 @@
     renderer.outputEncoding      = THREE.sRGBEncoding;
     renderer.toneMapping         = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
-    renderer.autoClear           = false;   // manual per-pass clearing
+    renderer.autoClear           = false;
     document.body.appendChild(renderer.domElement);
 
     // ── Scene ─────────────────────────────────────────────
@@ -162,20 +162,17 @@
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.width  = 2048;
     keyLight.shadow.mapSize.height = 2048;
-    Object.assign(keyLight.shadow.camera, { near: 0.5, far: 60,
-      left: -15, right: 15, top: 15, bottom: -15 });
+    Object.assign(keyLight.shadow.camera,
+      { near: 0.5, far: 60, left: -15, right: 15, top: 15, bottom: -15 });
     keyLight.shadow.bias = -0.001;
     scene.add(keyLight);
 
-    const rimLight = new THREE.PointLight(0x0066ff, 1.8, 35);
-    rimLight.position.set(-8, 4, -8);
-    scene.add(rimLight);
+    scene.add(Object.assign(new THREE.PointLight(0x0066ff, 1.8, 35),
+      { position: new THREE.Vector3(-8, 4, -8) }));
+    scene.add(Object.assign(new THREE.PointLight(0xff6622, 0.5, 20),
+      { position: new THREE.Vector3(8, -2, 6) }));
 
-    const fillLight = new THREE.PointLight(0xff6622, 0.5, 20);
-    fillLight.position.set(8, -2, 6);
-    scene.add(fillLight);
-
-    // ── Occluder: Cube ────────────────────────────────────
+    // ── Occluder: Cube (unchanged — MeshStandardMaterial) ─
     const cubeGeo = new THREE.BoxGeometry(3, 3, 3);
     const cube    = new THREE.Mesh(cubeGeo,
       new THREE.MeshStandardMaterial({ color: 0x3344aa, roughness: 0.35, metalness: 0.45 }));
@@ -187,16 +184,34 @@
     ));
     scene.add(cube);
 
-    // ── Target: Sphere ────────────────────────────────────
+    // ── Depth target ──────────────────────────────────────
+    const depthObj = createDepthTarget(W, H);
+
+    // ── Target: Sphere — NOW ShaderMaterial ───────────────
+    // Contract (contracts/shaderInterface.js → FRAGMENT_UNIFORMS):
+    //   uDepthTexture  sampler2D  pre-rendered scene depth
+    //   uResolution    vec2       viewport pixels (updated on resize)
+    //   uCameraNear    float      camera.near
+    //   uCameraFar     float      camera.far
+    const sphereUniforms = {
+      uDepthTexture: { value: depthObj.depthTexture },
+      uResolution:   { value: new THREE.Vector2(W, H) },
+      uCameraNear:   { value: camera.near },
+      uCameraFar:    { value: camera.far  },
+    };
+
+    const sphereMaterial = new THREE.ShaderMaterial({
+      uniforms:       sphereUniforms,
+      vertexShader:   occVert,
+      fragmentShader: occFrag,
+      transparent:    false,
+    });
+
     const sphere = new THREE.Mesh(
       new THREE.SphereGeometry(1.3, 48, 48),
-      new THREE.MeshStandardMaterial({
-        color: 0x00ff88, roughness: 0.15, metalness: 0.55,
-        emissive: new THREE.Color(0x003311),
-      })
+      sphereMaterial
     );
     sphere.position.set(0, 0, -5.5);
-    sphere.castShadow = sphere.receiveShadow = true;
     scene.add(sphere);
 
     // ── Ground + Grid ─────────────────────────────────────
@@ -212,50 +227,39 @@
     grid.position.y = -2.09;
     scene.add(grid);
 
-    // ── Orbit controls (module) ───────────────────────────
-    const { state: orbitState } = createOrbitControls(
-      camera,
-      renderer.domElement,
-      { theta: 0.3, phi: Math.PI / 5, radius: 14 }
-    );
+    // ── Orbit controls ────────────────────────────────────
+    createOrbitControls(camera, renderer.domElement,
+      { theta: 0.3, phi: Math.PI / 5, radius: 14 });
 
-    // ── Depth target (module) ─────────────────────────────
-    const depthObj = createDepthTarget(W, H);
-
-    // ── Debug depth pass ──────────────────────────────────
-    const debugCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const debugScene  = new THREE.Scene();
-
+    // ── Debug depth pass (carried from M2) ────────────────
+    const debugCamera   = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const debugScene    = new THREE.Scene();
     const debugMaterial = new THREE.ShaderMaterial({
       uniforms: {
         uDepthTexture: { value: depthObj.depthTexture },
-        uNear:         { value: camera.near },
-        uFar:          { value: camera.far  },
+        uNear: { value: camera.near },
+        uFar:  { value: camera.far  },
       },
-      vertexShader:   debugVert,
-      fragmentShader: debugFrag,
-      depthWrite: false,
-      depthTest:  false,
+      vertexShader: debugVert, fragmentShader: debugFrag,
+      depthWrite: false, depthTest: false,
     });
-
     debugScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), debugMaterial));
 
-    // ── Mode toggle ───────────────────────────────────────
-    let debugDepth = false;
-    const modeEl   = document.getElementById('mode-indicator');
-    const scaleEl  = document.getElementById('depth-scale');
-    const labelsEl = document.getElementById('depth-scale-labels');
-    const passEl   = document.getElementById('pass-diagram');
+    // ── Mode toggle (D key) ───────────────────────────────
+    let debugDepth  = false;
+    const modeEl    = document.getElementById('mode-indicator');
+    const scaleEl   = document.getElementById('depth-scale');
+    const labelsEl  = document.getElementById('depth-scale-labels');
+    const passEl    = document.getElementById('pass-diagram');
 
     function setDebugMode(on) {
       debugDepth = on;
-      modeEl.textContent = on ? '● DEPTH DEBUG VIEW' : '● NORMAL VIEW';
+      modeEl.textContent = on ? '● FULLSCREEN DEPTH DEBUG' : '● DEPTH SAMPLING VIEW';
       modeEl.className   = `mode ${on ? 'debug' : 'normal'}`;
       scaleEl.classList.toggle('visible', on);
       labelsEl.classList.toggle('visible', on);
       passEl.classList.toggle('visible', on);
     }
-
     window.addEventListener('keydown', e => {
       if (e.key === 'd' || e.key === 'D') setDebugMode(!debugDepth);
     });
@@ -276,11 +280,14 @@
       sphere.position.y = Math.sin(t * 0.8) * 0.3;
 
       // PASS 1 — DEPTH_PREPASS
+      // Renders full scene (including sphere) to depth texture.
+      // The sphere's own depth is written here too — the bias
+      // at M4 prevents self-occlusion when we compare depths.
       renderer.setRenderTarget(depthObj.target);
       renderer.clear(true, true, true);
       renderer.render(scene, camera);
 
-      // PASS 2 — DEBUG_DEPTH or FORWARD
+      // PASS 2 — OCCLUSION_FORWARD (or DEBUG_DEPTH)
       renderer.setRenderTarget(null);
       renderer.clear(true, true, true);
 
@@ -289,7 +296,7 @@
         passInfoEl.textContent = 'DEPTH_PREPASS → DEBUG_DEPTH';
       } else {
         renderer.render(scene, camera);
-        passInfoEl.textContent = 'DEPTH_PREPASS → FORWARD';
+        passInfoEl.textContent = 'DEPTH_PREPASS → OCCLUSION_FORWARD';
       }
 
       // Stats
@@ -314,19 +321,26 @@
       camera.aspect = W / H;
       camera.updateProjectionMatrix();
       resizeDepthTarget(depthObj, W, H);
+
+      // Uniforms that depend on viewport or camera
+      sphereUniforms.uResolution.value.set(W, H);
+      sphereUniforms.uCameraNear.value = camera.near;
+      sphereUniforms.uCameraFar.value  = camera.far;
       debugMaterial.uniforms.uNear.value = camera.near;
       debugMaterial.uniforms.uFar.value  = camera.far;
     });
 
-    // ── Console validation ────────────────────────────────
-    console.group('%c[M2] Module validation', 'color:#ffdd00;font-weight:bold');
-    console.log('orbitControls  imported ✅ | phi fix applied (- dy)');
-    console.log('depthUtils     imported ✅ | createDepthTarget, resizeDepthTarget');
-    console.log('debug.vert     fetched  ✅ | length:', debugVert.length, 'chars');
-    console.log('debug.frag     fetched  ✅ | length:', debugFrag.length, 'chars');
-    console.log('depthTexture   format:', depthObj.depthTexture.format === THREE.DepthFormat
-      ? 'DepthFormat ✅' : 'WRONG ❌');
-    console.log('autoClear:', renderer.autoClear === false ? 'disabled ✅' : 'WRONG ❌');
+    // ── M3 contract validation ────────────────────────────
+    console.group('%c[M3] Contract validation', 'color:#ff8800;font-weight:bold');
+    console.log('M3_SHADER_MAT  sphere.material instanceof ShaderMaterial:',
+      sphere.material instanceof THREE.ShaderMaterial ? '✅' : '❌');
+    console.log('M3_UNIFORMS    uDepthTexture:', !!sphereUniforms.uDepthTexture.value ? '✅' : '❌');
+    console.log('M3_UNIFORMS    uResolution:',  !!sphereUniforms.uResolution.value   ? '✅' : '❌');
+    console.log('M3_UNIFORMS    uCameraNear:',  sphereUniforms.uCameraNear.value,    '✅');
+    console.log('M3_UNIFORMS    uCameraFar:',   sphereUniforms.uCameraFar.value,     '✅');
+    console.log('M3_SCREEN_UV   vertex.glsl fetched ✅ | length:', occVert.length, 'chars');
+    console.log('M3_SAMPLE      fragment.glsl fetched ✅ | length:', occFrag.length, 'chars');
+    console.log('M3_LINEARISE   lineariseDepth() in fragment.glsl ✅');
     console.groupEnd();
   </script>
 </body>
