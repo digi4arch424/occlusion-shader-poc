@@ -318,10 +318,19 @@
           uniforms:       sphereUniforms,
           vertexShader:   assets.occVert,
           fragmentShader: assets.occFrag,
-          transparent:    false,
+          // depthTest: false — critical for BIM overlay behaviour.
+          // Hardware depth testing discards fragments before the
+          // fragment shader runs. With it on, sphere pixels behind
+          // the cube are silently thrown away — the occlusion test
+          // never executes and the sphere never turns red.
+          // The shader owns the occlusion decision, not the GPU.
+          depthTest:   false,
+          depthWrite:  false,   // don't pollute the screen depth buffer
+          transparent: true,    // renders after opaques; alpha ready for M5
         })
       );
       sphere.position.set(0, 0, -5.5);
+      sphere.renderOrder = 1;  // draw after all opaque objects
       scene.add(sphere);
 
       // ── Ground + Grid ─────────────────────────────────────
