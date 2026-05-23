@@ -177,11 +177,13 @@
     const errorEl    = document.getElementById('error-overlay');
     const errorDetail = document.getElementById('error-detail');
 
-    function showError(message) {
+    function showError(message, isNetworkError = false) {
       errorDetail.innerHTML = message;
+      document.querySelector('.err-hint').style.display =
+        isNetworkError ? 'block' : 'none';
       errorEl.classList.add('visible');
       loadingEl.classList.add('hidden');
-      console.error('[Boot] Asset load failed:', message);
+      console.error('[Boot]', message);
     }
 
     // ══════════════════════════════════════════════════════
@@ -235,7 +237,8 @@
           showError(
             `<span class="err-file">fetch('${path}')</span> failed<br>` +
             `Reason: ${err.message}<br><br>` +
-            `Confirm this file is committed and deployed to GitHub Pages.`
+            `Confirm this file is committed and deployed to GitHub Pages.`,
+            true
           );
           throw err; // halt boot — Phase 3 never runs
         }
@@ -273,10 +276,13 @@
         { near: 0.5, far: 60, left: -15, right: 15, top: 15, bottom: -15 });
       keyLight.shadow.bias = -0.001;
       scene.add(keyLight);
-      scene.add(Object.assign(new THREE.PointLight(0x0066ff, 1.8, 35),
-        { position: new THREE.Vector3(-8, 4, -8) }));
-      scene.add(Object.assign(new THREE.PointLight(0xff6622, 0.5, 20),
-        { position: new THREE.Vector3(8, -2, 6) }));
+      const rimLight = new THREE.PointLight(0x0066ff, 1.8, 35);
+      rimLight.position.set(-8, 4, -8);
+      scene.add(rimLight);
+
+      const fillLight = new THREE.PointLight(0xff6622, 0.5, 20);
+      fillLight.position.set(8, -2, 6);
+      scene.add(fillLight);
 
       // ── Occluder: Cube ────────────────────────────────────
       const cubeGeo = new THREE.BoxGeometry(3, 3, 3);
@@ -438,10 +444,8 @@
     // Phase 1 already ran (renderer mounted above).
     // Phase 2 + 3 run here — failure in 2 prevents 3.
     boot().catch(err => {
-      // Errors from Phase 2 are already shown on screen.
-      // This catches anything unexpected from Phase 3.
       if (!errorEl.classList.contains('visible')) {
-        showError(`Unexpected error in boot:<br>${err.message}`);
+        showError(`Runtime error in boot:<br><br>${err.message}`);
       }
     });
   </script>
