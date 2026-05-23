@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Occlusion PoC — M3: Depth Access</title>
+  <title>Occlusion PoC — M4: Occlusion Detection</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #050508; overflow: hidden; font-family: 'Courier New', monospace; }
@@ -11,14 +11,14 @@
 
     #hud {
       position: fixed; top: 16px; left: 16px;
-      color: #ff8800; font-size: 12px; line-height: 2;
+      color: #ff3333; font-size: 12px; line-height: 2;
       background: rgba(0,0,0,0.78); padding: 14px 18px;
-      border-radius: 6px; border: 1px solid #ff880033;
+      border-radius: 6px; border: 1px solid #ff222233;
       backdrop-filter: blur(8px); pointer-events: none;
       z-index: 10; min-width: 280px;
     }
     #hud .title  { font-size: 14px; font-weight: bold; color: #ff8800;
-                   border-bottom: 1px solid #ff880044;
+                   border-bottom: 1px solid #ff333344;
                    padding-bottom: 6px; margin-bottom: 6px; }
     #hud .check  { color: #00ff99; }
     #hud .active { color: #ff8800; font-weight: bold; }
@@ -26,12 +26,13 @@
     #hud .mode   { margin-top: 10px; padding: 5px 8px; border-radius: 4px;
                    font-weight: bold; font-size: 12px; letter-spacing: 0.5px; }
     #hud .mode.normal { background: #1a1000; color: #ff8800; border: 1px solid #ff880055; }
+    #hud .mode.active { background: #1a0000; color: #ff3333; border: 1px solid #ff333355; }
     #hud .mode.debug  { background: #1a2500; color: #aaff44; border: 1px solid #aaff4455; }
 
     #milestone-badge {
       position: fixed; top: 16px; right: 16px;
       font-size: 13px; font-weight: bold; color: #fff;
-      background: #1a0e00; border: 2px solid #ff8800;
+      background: #1a0000; border: 2px solid #ff3333;
       padding: 8px 14px; border-radius: 6px; letter-spacing: 1px; z-index: 10;
     }
 
@@ -102,21 +103,22 @@
 
   <!-- Static UI — renders immediately, independent of JS -->
   <div id="hud">
-    <div class="title">🟠 MILESTONE 3 — Depth Access</div>
+    <div class="title">🔴 MILESTONE 4 — Occlusion Detection</div>
     <div class="check">✅ M1: Scene + camera + lights</div>
-    <div class="check">✅ M2: Depth target + two-pass loop</div>
-    <div class="active">▶ Sphere → ShaderMaterial</div>
-    <div class="active">▶ vScreenUV from clip coords</div>
-    <div class="active">▶ Depth sampled + linearised per fragment</div>
-    <div id="mode-indicator" class="mode normal">● DEPTH SAMPLING VIEW</div>
+    <div class="check">✅ M2: Depth target + two-pass loop
+    <div class="check">✅ M3: Depth sampled + linearised per fragment</div></div>
+    <div class="active">▶ fragDepth vs sceneDepth comparison</div>
+    <div class="active">▶ uDepthBias prevents edge flicker</div>
+    <div class="active">▶ Green = visible | Red = occluded</div>
+    <div id="mode-indicator" class="mode active">● OCCLUSION ACTIVE</div>
     <div class="hint">
       Left drag → orbit &nbsp;|&nbsp; Scroll → zoom<br>
-      <strong style="color:#ff8800">Sphere surface = sampled scene depth</strong><br>
-      warm/bright = near &nbsp;|&nbsp; cool/dark = far<br>
-      <strong style="color:#aaff44">D</strong> → toggle fullscreen depth debug
+      <strong style="color:#ff3333">Red = occluded</strong> &nbsp;|&nbsp; <strong style="color:#00ff66">Green = visible</strong><br>
+      Orbit camera to see occlusion update<br>
+      <strong style="color:#aaff44">D</strong> → toggle depth debug view
     </div>
   </div>
-  <div id="milestone-badge">🟠 M3</div>
+  <div id="milestone-badge">🔴 M4</div>
 
   <!-- Error overlay — shown if asset loading fails -->
   <div id="error-overlay">
@@ -305,6 +307,9 @@
         uResolution:   { value: new THREE.Vector2(W, H) },
         uCameraNear:   { value: camera.near },
         uCameraFar:    { value: camera.far  },
+        // M4: tolerance that prevents edge flickering where the
+        // overlay grazes a surface and fragDepth ≈ sceneDepth
+        uDepthBias:    { value: 0.08 },
       };
 
       const sphere = new THREE.Mesh(
@@ -359,7 +364,7 @@
 
       function setDebugMode(on) {
         debugDepth = on;
-        modeEl.textContent = on ? '● FULLSCREEN DEPTH DEBUG' : '● DEPTH SAMPLING VIEW';
+        modeEl.textContent = on ? '● FULLSCREEN DEPTH DEBUG' : '● OCCLUSION ACTIVE';
         modeEl.className   = `mode ${on ? 'debug' : 'normal'}`;
         scaleEl.classList.toggle('visible', on);
         labelsEl.classList.toggle('visible', on);
@@ -384,10 +389,17 @@
         cube.rotation.y   = t * 0.25;
         sphere.position.y = Math.sin(t * 0.8) * 0.3;
 
-        // PASS 1 — DEPTH_PREPASS
+        // PASS 1 — DEPTH_PREPASS (occluders only)
+        // The sphere's fragment shader samples uDepthTexture.
+        // Rendering the sphere here causes a GPU read/write conflict
+        // on the same texture: depth writes are silently dropped,
+        // making the sphere invisible in debug view and translucent
+        // in the forward pass. Fix: exclude sphere from this pass.
+        sphere.visible = false;
         renderer.setRenderTarget(depthObj.target);
         renderer.clear(true, true, true);
         renderer.render(scene, camera);
+        sphere.visible = true;
 
         // PASS 2 — OCCLUSION_FORWARD or DEBUG_DEPTH
         renderer.setRenderTarget(null);
@@ -429,14 +441,14 @@
       });
 
       // ── M3 contract validation ────────────────────────────
-      console.group('%c[M3] Contract validation', 'color:#ff8800;font-weight:bold');
-      console.log('M3_SHADER_MAT  ShaderMaterial:',
+      console.group('%c[M4] Contract validation', 'color:#ff3333;font-weight:bold');
+      console.log('M4_SHADER_MAT  ShaderMaterial:',
         sphere.material instanceof THREE.ShaderMaterial ? '✅' : '❌');
-      console.log('M3_UNIFORMS    uDepthTexture:', !!sphereUniforms.uDepthTexture.value ? '✅' : '❌');
-      console.log('M3_UNIFORMS    uResolution:',
-        sphereUniforms.uResolution.value.x, 'x', sphereUniforms.uResolution.value.y, '✅');
-      console.log('M3_UNIFORMS    uCameraNear:', sphereUniforms.uCameraNear.value, '✅');
-      console.log('M3_UNIFORMS    uCameraFar:',  sphereUniforms.uCameraFar.value,  '✅');
+      console.log('M4_UNIFORMS    uDepthTexture:', !!sphereUniforms.uDepthTexture.value ? '✅' : '❌');
+      console.log('M4_UNIFORMS    uDepthBias:',   sphereUniforms.uDepthBias.value, '✅');
+      console.log('M4_UNIFORMS    uCameraNear:',  sphereUniforms.uCameraNear.value, '✅');
+      console.log('M4_UNIFORMS    uCameraFar:',   sphereUniforms.uCameraFar.value,  '✅');
+      console.log('M4_PREPASS     sphere excluded from depth write: ✅');
       console.groupEnd();
     }
 
