@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Occlusion PoC — M4: Occlusion Detection</title>
+  <title>Occlusion PoC — M5: Visual Effects</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #050508; overflow: hidden; font-family: 'Courier New', monospace; }
@@ -103,22 +103,23 @@
 
   <!-- Static UI — renders immediately, independent of JS -->
   <div id="hud">
-    <div class="title">🔴 MILESTONE 4 — Occlusion Detection</div>
+    <div class="title">🔵 MILESTONE 5 — Visual Effects</div>
     <div class="check">✅ M1: Scene + camera + lights</div>
     <div class="check">✅ M2: Depth target + two-pass loop
     <div class="check">✅ M3: Depth sampled + linearised per fragment</div></div>
-    <div class="active">▶ fragDepth vs sceneDepth comparison</div>
-    <div class="active">▶ uDepthBias prevents edge flicker</div>
-    <div class="active">▶ Green = visible | Red = occluded</div>
-    <div id="mode-indicator" class="mode active">● OCCLUSION ACTIVE</div>
+    <div class="check">✅ M4: Occlusion detection (fragDepth > sceneDepth)</div>
+    <div class="active">▶ Diffuse + ambient surface shading</div>
+    <div class="active">▶ Fade + pulsing glow when occluded</div>
+    <div class="active">▶ Smooth blend between states</div>
+    <div id="mode-indicator" class="mode active">● VISUAL EFFECTS ACTIVE</div>
     <div class="hint">
       Left drag → orbit &nbsp;|&nbsp; Scroll → zoom<br>
-      <strong style="color:#ff3333">Red = occluded</strong> &nbsp;|&nbsp; <strong style="color:#00ff66">Green = visible</strong><br>
-      Orbit camera to see occlusion update<br>
+      Visible → full shading &nbsp;|&nbsp; Occluded → fade + pulse<br>
+      Orbit camera to see effect update<br>
       <strong style="color:#aaff44">D</strong> → toggle depth debug view
     </div>
   </div>
-  <div id="milestone-badge">🔴 M4</div>
+  <div id="milestone-badge">🔵 M5</div>
 
   <!-- Error overlay — shown if asset loading fails -->
   <div id="error-overlay">
@@ -310,6 +311,10 @@
         // M4: tolerance that prevents edge flickering where the
         // overlay grazes a surface and fragDepth ≈ sceneDepth
         uDepthBias:    { value: 0.08 },
+        // M5: visual effect uniforms
+        uTime:         { value: 0.0 },
+        uBaseColor:    { value: new THREE.Vector3(0.0, 1.0, 0.53) },
+        uLightDir:     { value: new THREE.Vector3(6, 12, 8).normalize() },
       };
 
       const sphere = new THREE.Mesh(
@@ -373,7 +378,7 @@
 
       function setDebugMode(on) {
         debugDepth = on;
-        modeEl.textContent = on ? '● FULLSCREEN DEPTH DEBUG' : '● OCCLUSION ACTIVE';
+        modeEl.textContent = on ? '● FULLSCREEN DEPTH DEBUG' : '● VISUAL EFFECTS ACTIVE';
         modeEl.className   = `mode ${on ? 'debug' : 'normal'}`;
         scaleEl.classList.toggle('visible', on);
         labelsEl.classList.toggle('visible', on);
@@ -397,6 +402,7 @@
 
         cube.rotation.y   = t * 0.25;
         sphere.position.y = Math.sin(t * 0.8) * 0.3;
+        sphereUniforms.uTime.value = t;
 
         // PASS 1 — DEPTH_PREPASS (occluders only)
         // The sphere's fragment shader samples uDepthTexture.
@@ -450,14 +456,12 @@
       });
 
       // ── M3 contract validation ────────────────────────────
-      console.group('%c[M4] Contract validation', 'color:#ff3333;font-weight:bold');
-      console.log('M4_SHADER_MAT  ShaderMaterial:',
-        sphere.material instanceof THREE.ShaderMaterial ? '✅' : '❌');
-      console.log('M4_UNIFORMS    uDepthTexture:', !!sphereUniforms.uDepthTexture.value ? '✅' : '❌');
-      console.log('M4_UNIFORMS    uDepthBias:',   sphereUniforms.uDepthBias.value, '✅');
-      console.log('M4_UNIFORMS    uCameraNear:',  sphereUniforms.uCameraNear.value, '✅');
-      console.log('M4_UNIFORMS    uCameraFar:',   sphereUniforms.uCameraFar.value,  '✅');
-      console.log('M4_PREPASS     sphere excluded from depth write: ✅');
+      console.group('%c[M5] Contract validation', 'color:#4488ff;font-weight:bold');
+      console.log('M5_SHADING     uBaseColor:', sphereUniforms.uBaseColor.value, '✅');
+      console.log('M5_SHADING     uLightDir:',  sphereUniforms.uLightDir.value,  '✅');
+      console.log('M5_PULSE       uTime wired to clock ✅');
+      console.log('M5_FADE        depthTest: false, transparent: true ✅');
+      console.log('M5_BLEND       smoothstep transition in fragment.glsl ✅');
       console.groupEnd();
     }
 
