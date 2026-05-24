@@ -1,6 +1,6 @@
 # 🔭 WebGL Occlusion Shader — Three.js PoC
 
-> A progressive, milestone-driven proof-of-concept implementing **screen-space occlusion detection** using custom GLSL shaders and Three.js depth buffer access. No ML, no physics engines, no external render frameworks — pure WebGL.
+> A progressive, milestone-driven proof-of-concept implementing **screen-space occlusion detection** using custom GLSL shaders and Three.js depth buffer access. Built as a verified stepping stone toward a production BIM overlay pipeline. No ML, no physics engines, no external render frameworks — pure WebGL.
 
 ![Three.js](https://img.shields.io/badge/Three.js-r128-black?logo=three.js)
 ![WebGL](https://img.shields.io/badge/WebGL-2.0-red?logo=webgl)
@@ -11,16 +11,10 @@
 
 ## 📺 Live Demo
 
-Open `index.html` directly in a browser — no build step required.
+Hosted on GitHub Pages — no build step, no install, no local server required.
 
-Live site at https://digi4arch424.github.io/occlusion-shader-poc/
-
-```bash
-git clone https://github.com/YOUR_USERNAME/occlusion-shader-poc
-cd occlusion-shader-poc
-open index.html           # macOS
-# or serve locally to avoid CORS on shader file imports:
-python3 -m http.server 8080   # → http://localhost:8080
+```
+https://YOUR_USERNAME.github.io/occlusion-shader-poc/
 ```
 
 ---
@@ -29,72 +23,145 @@ python3 -m http.server 8080   # → http://localhost:8080
 
 A **depth-based occlusion shader** that:
 
-1. Renders the full scene to an off-screen depth texture (Pass 1)
+1. Renders occluder geometry to an off-screen depth texture (Pass 1)
 2. Passes that texture as a uniform into a custom fragment shader (Pass 2)
-3. Compares each fragment's reconstructed depth against the sampled scene depth
-4. Applies a visual effect when the fragment is behind something else
+3. Compares each fragment's depth against the sampled scene depth per frame
+4. Fades and pulses the overlay element when it is behind a surface
 
-The sphere **fades out and glows** when hidden behind the cube, and returns to full shading when visible — driven purely by shader logic, not CPU raycasting.
+The sphere represents a **BIM overlay element** — a pipe, duct, or structural member. The boxes represent **physical world surfaces**. The shader asks one question per pixel per frame: *is there a real surface closer to the camera than this overlay element?*
+
+---
+
+## 🏗 Production Pipeline Architecture
+
+### The PoC canvas is a depth source simulator
+
+This canvas exists to simulate what a real pipeline hands the shader. In production the canvas is removed entirely. The shader receives:
+
+```
+Input:  depth texture        ← from depth estimation system
+        screen-space UV      ← from host renderer
+Output: occlusion factor     → drives BIM overlay opacity / highlight
+```
+
+### The real pipeline
+
+```
+┌────────────────────────┐       depth texture      ┌──────────────────────┐
+│  Depth Estimation      │ ───────────────────────► │  Occlusion Shader    │
+│  (separate system)     │                           │  (this PoC)          │
+│                        │                           │                      │
+│  video frame → depth   │                           │  sample → compare    │
+│  not our concern here  │                           │  → occlusion factor  │
+└────────────────────────┘                           └──────────────────────┘
+         +                                                    +
+┌────────────────────────┐                           ┌──────────────────────┐
+│  Video Stream          │ ── background layer ────► │  BIM Overlay         │
+│  (host application)    │                           │  rendered on top     │
+└────────────────────────┘                           └──────────────────────┘
+```
+
+The occlusion shader's public interface is defined entirely by its uniforms — `uDepthTexture`, `uDepthBias`. Everything else is internal implementation that disappears when it moves to production.
+
+### Single WebGL context — recommended
+
+For this pipeline, a **single WebGL context with a unified render graph** is the correct architectural choice. The requirements that mandate it:
+
+| Requirement | Why single context is needed |
+|---|---|
+| Frame-perfect compositing | Video frame and BIM overlay must be composited in the same render tick — separate contexts cannot guarantee synchronisation |
+| Shared camera model | VPS → scene transform must be applied to both the depth prepass and the BIM overlay geometry from a single camera matrix |
+| Shared depth / occlusion logic | The depth texture produced in Pass 1 must be readable in Pass 2 — this requires shared GPU memory, only possible in the same context |
+| Synchronised per-frame updates | `uTime`, camera uniforms, and depth texture must all update atomically in a single `requestAnimationFrame` — two contexts have independent loops |
+
+**The isolation risk:** if both pipelines share the same WebGL context, they share the GPU memory budget. Expensive work in the host application (high-resolution video decoding, complex BIM geometry) reduces the budget available to the occlusion shader. This must be profiled during integration.
+
+---
+
+## ⚡ Performance Recommendations for Production
+
+When the occlusion shader is plugged into a real BIM model, the number of overlay elements can reach into the thousands. Three optimisations should be treated as requirements, not afterthoughts.
+
+### 1. Instancing — highest priority
+
+If many BIM elements share the same geometry (all circular pipes, all rectangular ducts, all I-beams), they can be batched into a **single draw call** regardless of count using `THREE.InstancedMesh`.
+
+```
+Without instancing:  1000 pipes = 1000 draw calls per frame
+With instancing:     1000 pipes = 1 draw call per frame
+```
+
+Each instance can carry its own transform and a custom attribute for per-element occlusion state. The occlusion shader runs once per fragment across all instances — the GPU handles the parallelism.
+
+```js
+// Example: 1000 pipe instances, one draw call
+const instancedPipes = new THREE.InstancedMesh(pipeGeometry, occlusionMaterial, 1000);
+```
+
+### 2. Frustum culling
+
+Only draw BIM elements that fall within the camera's current view frustum. Elements outside the frame contribute zero visible pixels but still cost draw calls if not culled.
+
+Three.js applies frustum culling automatically to standard meshes. For instanced geometry, per-instance culling requires a custom implementation or a library such as `three-instanced-mesh`.
+
+**Rule of thumb:** a large BIM model viewed from any single camera position typically has 60–80% of its elements outside the frustum. Culling them is free performance.
+
+### 3. Level of Detail (LOD)
+
+Distant BIM elements can use simplified geometry with fewer triangles. A pipe 50 metres away does not need 48 radial segments — 8 segments are visually indistinguishable at that distance but cost 6× fewer triangles.
+
+```js
+const lod = new THREE.LOD();
+lod.addLevel(highDetailPipe, 0);    // < 10m: full geometry
+lod.addLevel(medDetailPipe,  10);   // 10–30m: reduced
+lod.addLevel(lowDetailPipe,  30);   // > 30m: minimal
+```
+
+The occlusion shader is unaffected by LOD changes — it operates on screen-space depth, not on geometry complexity.
 
 ---
 
 ## 📐 Interface Contracts
 
-All data boundaries between JavaScript and GLSL, and between render passes, are defined in `contracts/` **before any implementation is written**. The code must satisfy the contracts; the contracts do not follow from the code.
+All data boundaries between JavaScript and GLSL, and between render passes, are defined in `contracts/` **before any implementation is written**.
 
 ### Shader Uniforms
-
-Every uniform the fragment shader may read is declared in `contracts/shaderInterface.js`:
 
 | Uniform | GLSL Type | Since | Purpose |
 |---|---|---|---|
 | `uDepthTexture` | `sampler2D` | M2 | Pre-rendered scene depth (Pass 1 output) |
-| `uResolution` | `vec2` | M3 | Viewport size in pixels — must update on resize |
-| `uCameraNear` | `float` | M3 | Camera near clip — required to linearise depth |
-| `uCameraFar` | `float` | M3 | Camera far clip — required to linearise depth |
-| `uDepthBias` | `float` | M4 | Small offset preventing self-occlusion z-fighting |
-| `uTime` | `float` | M5 | Elapsed seconds, drives glow pulse |
-| `uBaseColor` | `vec3` | M5 | Object diffuse colour |
+| `uResolution` | `vec2` | M3 | Viewport size — updated on resize |
+| `uCameraNear` | `float` | M3 | Camera near clip — required for linearisation |
+| `uCameraFar` | `float` | M3 | Camera far clip — required for linearisation |
+| `uDepthBias` | `float` | M4 | Prevents edge flickering at depth discontinuities |
+| `uTime` | `float` | M5 | Elapsed seconds — drives glow pulse |
+| `uBaseColor` | `vec3` | M5 | Overlay diffuse colour |
 | `uLightDir` | `vec3` | M5 | World-space key light direction |
-
-`validateUniforms(material.uniforms, 'M4')` throws at init time if any required uniform for the current milestone is missing — wiring bugs are caught before the first frame renders.
-
-### Vertex → Fragment Varyings
-
-| Varying | Type | Since | Purpose |
-|---|---|---|---|
-| `vScreenUV` | `vec2` | M3 | Screen-space UV for depth texture lookup |
-| `vWorldNormal` | `vec3` | M5 | Surface normal for diffuse shading |
-| `vWorldPos` | `vec3` | M5 | World position for lighting |
-| `vViewDepth` | `float` | M2 | Camera-space depth for debug HUD |
 
 ### Render Pass Contracts
 
-Every pass is defined in `contracts/renderPassInterface.js` as a **producer/consumer pair**. No pass may read a resource it has not declared as consumed.
-
 ```
 DEPTH_PREPASS
-  consumes: [scene_geometry]
-  produces: [depth_texture]
+  renders:  occluder geometry only (BIM overlay elements excluded)
+  produces: depth_texture
        ↓
 OCCLUSION_FORWARD
-  consumes: [depth_texture, scene_geometry]
-  produces: [colour_buffer → screen]
+  consumes: depth_texture
+  renders:  full scene including BIM overlay elements
+  produces: colour_buffer → screen
 ```
 
-**Frame loop by milestone** (authoritative — changing execution order requires updating the contract first):
+### Why BIM overlay elements are excluded from Pass 1
 
-| Milestone | Pass 1 | Pass 2 |
-|---|---|---|
-| M1 | `FORWARD` | — |
-| M2 | `DEPTH_PREPASS` | `DEBUG_DEPTH` |
-| M3 – M6 | `DEPTH_PREPASS` | `OCCLUSION_FORWARD` |
+BIM overlay elements are **depth consumers**, not depth contributors. They read from the depth texture to determine their own visibility. Including them in the pass that writes the depth texture creates a GPU read/write conflict on the same texture — the driver silently drops their depth writes.
+
+This is architecturally correct: the depth texture represents the physical world. BIM elements are not part of the physical world — they are overlaid onto it.
 
 ---
 
 ## 🧭 Milestone Structure
 
-Six milestones, each gated by a locked acceptance checklist. A milestone is complete only when every check passes — not when the code "looks right."
+Six milestones, each gated by a locked acceptance checklist defined in `contracts/milestoneInterface.js`.
 
 ```
 M1 ──► M2 ──► M3 ──► M4 ──► M5 ──► M6
@@ -105,154 +172,23 @@ Scene  Depth  Shader  Detect Effect Stress
 
 ---
 
-### 🟢 Milestone 1 — Basic 3D Scene
+### 🟢 M1 — Basic 3D Scene
+Perspective camera · manual orbit controls · sphere (BIM overlay) + cube (occluder) · 4-light rig · no shaders.
 
-**Acceptance checks** (`contracts/milestoneInterface.js → M1`):
+### 🟡 M2 — Depth Buffer Visualisation
+`WebGLRenderTarget` + `DepthTexture` · two-pass frame loop · greyscale debug quad · D key toggle.
 
-```
-☐  WebGLRenderer created and canvas mounted to DOM
-☐  Scene contains at least 2 Mesh objects
-☐  Sphere mesh present at Z < 0 (behind cube)
-☐  Cube mesh present at origin
-☐  PerspectiveCamera FOV 60, near 0.05, far 300
-☐  At least 2 light sources in scene
-☐  Camera position changes on mouse/touch drag
-☐  requestAnimationFrame loop running (FPS > 0)
-☐  No ShaderMaterial or RawShaderMaterial in scene
-```
+### 🟠 M3 — Screen-Space Depth Access
+Sphere → `ShaderMaterial` · `vScreenUV` from clip coords · depth sampled and linearised per fragment · shader architecture separated into three boot phases.
 
-**Scene objects:**
+### 🔴 M4 — Occlusion Detection Logic
+`fragDepth > sceneDepth + uDepthBias` · `depthTest: false` on overlay material (GPU must not discard fragments before shader runs) · green = visible, red = occluded.
 
-| Object | Role | Material |
-|--------|------|----------|
-| Sphere (green) | Occlusion *target* | `MeshStandardMaterial` |
-| Cube (blue) | *Occluder* | `MeshStandardMaterial` |
+### 🔵 M5 — Visual Effects Layer
+Diffuse + ambient shading for visible state · `smoothstep` replaces hard bool · pulsing warm glow + alpha fade when occluded · `uTime`, `uBaseColor`, `uLightDir` uniforms.
 
-Perspective camera (FOV 60°) · Manual orbit controls (no external lib) · 4-light rig: ambient + PCF shadow key + rim + bounce · Grid floor, fog, live FPS + camera position HUD.
-
----
-
-### 🟡 Milestone 2 — Depth Buffer Visualisation
-
-**Acceptance checks:**
-
-```
-☐  WebGLRenderTarget created with depthTexture attached
-☐  depthTexture uses DepthFormat + UnsignedShortType
-☐  Scene renders to depthTarget before screen pass
-☐  Full-screen debug quad renders greyscale depth
-☐  Closer objects are brighter in debug view
-☐  D key toggles debug depth view on/off
-☐  depthTarget resizes correctly with window
-```
-
-**Depth target configuration** (`contracts/renderPassInterface.js → depth_texture`):
-
-```js
-const depthTexture = new THREE.DepthTexture(W, H);
-depthTexture.type      = THREE.UnsignedShortType;
-depthTexture.format    = THREE.DepthFormat;
-depthTexture.minFilter = THREE.NearestFilter;
-depthTexture.magFilter = THREE.NearestFilter;
-```
-
-A full-screen quad samples this texture and linearises it for display:
-
-```glsl
-float linearDepth(float d, float near, float far) {
-  float z = d * 2.0 - 1.0;
-  return (2.0 * near * far) / (far + near - z * (far - near));
-}
-```
-
----
-
-### 🟠 Milestone 3 — Screen-Space Depth Access
-
-**Acceptance checks:**
-
-```
-☐  Sphere uses ShaderMaterial (not MeshStandardMaterial)
-☐  uDepthTexture, uResolution, uCameraNear, uCameraFar all set
-☐  vScreenUV computed from clip coords in vertex shader
-☐  Fragment shader reads texture2D(uDepthTexture, vScreenUV)
-☐  lineariseDepth() applied to both raw samples
-☐  Debug mode outputs depth visualisation on sphere surface
-```
-
-**Screen UV derivation** (vertex shader — satisfies `VERTEX_OUTPUTS.vScreenUV` contract):
-
-```glsl
-vec4 clipPos  = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
-gl_Position   = clipPos;
-vScreenUV     = (clipPos.xy / clipPos.w) * 0.5 + 0.5;
-```
-
----
-
-### 🔴 Milestone 4 — Occlusion Detection Logic
-
-**Acceptance checks:**
-
-```
-☐  Sphere fragment is red when behind cube
-☐  Sphere fragment is green when in front
-☐  uDepthBias prevents self-occlusion at sphere surface
-☐  Colour is stable — no per-frame flickering at edges
-☐  Partially occluded sphere shows split green/red
-☐  Occlusion state updates correctly as camera orbits
-```
-
-**Core occlusion rule** (`shaders/fragment.glsl` — implements M4 contract):
-
-```glsl
-float fragDepth  = lineariseDepth(gl_FragCoord.z,                       uCameraNear, uCameraFar);
-float sceneDepth = lineariseDepth(texture2D(uDepthTexture, vScreenUV).r, uCameraNear, uCameraFar);
-
-bool occluded = fragDepth > sceneDepth + uDepthBias;
-
-gl_FragColor = occluded
-  ? vec4(1.0, 0.1, 0.1, 1.0)   // red   — occluded
-  : vec4(0.1, 1.0, 0.4, 1.0);  // green — visible
-```
-
----
-
-### 🔵 Milestone 5 — Visual Effects Layer
-
-**Acceptance checks:**
-
-```
-☐  Hard red/green debug colours replaced by effect
-☐  Sphere alpha < 0.3 when fully occluded
-☐  Glow intensity oscillates with sin(uTime)
-☐  Visible state uses proper diffuse + ambient shading
-☐  Transition between states is smooth, not a hard cut
-```
-
-**Effect logic** (satisfies `FRAGMENT_UNIFORMS.uTime` and `uBaseColor` contracts):
-
-```glsl
-float pulse      = 0.55 + 0.45 * sin(uTime * 3.2);
-vec3  glowColor  = vec3(1.0, 0.25 + pulse * 0.15, 0.05);
-vec3  finalColor = mix(shadedColor, glowColor * pulse, occludedFactor * 0.85);
-float alpha      = mix(1.0, 0.18, occludedFactor);
-```
-
----
-
-### 🟣 Milestone 6 — Stress Test Scene
-
-**Acceptance checks:**
-
-```
-☐  At least 5 occluder boxes in scene
-☐  Sphere follows Lissajous path in real time
-☐  Camera auto-orbits (Space to toggle)
-☐  Frame time ≤ 16.7 ms at 1080p (60 fps target)
-☐  No z-fighting or depth inversion under motion
-☐  On-screen draw calls + triangle count displayed
-```
+### 🟣 M6 — Stress Test ✅
+6 occluders (3 rotating) · sphere on Lissajous path · auto-orbiting camera (Space to toggle) · performance HUD: frame time, fps, draw calls, triangles.
 
 ---
 
@@ -261,77 +197,54 @@ float alpha      = mix(1.0, 0.18, occludedFactor);
 ```
 occlusion-shader-poc/
 │
-├── index.html                    ← Entry point; milestone selector UI
+├── index.html                    ← Entry point — always current milestone
 ├── README.md
 │
 ├── contracts/                    ← Interfaces defined before implementation
 │   ├── shaderInterface.js        ← Uniform + varying contracts; validateUniforms()
 │   ├── renderPassInterface.js    ← Pass producer/consumer pairs; FRAME_LOOP map
-│   └── milestoneInterface.js     ← Per-milestone acceptance checklists; printContract()
+│   └── milestoneInterface.js     ← Per-milestone acceptance checklists
 │
 ├── shaders/
-│   ├── vertex.glsl               ← Position, vScreenUV, vWorldNormal, vViewDepth
-│   └── fragment.glsl             ← Depth sample → linearise → occlude → effect
+│   ├── vertex.glsl               ← vScreenUV, vWorldNormal, vViewDepth
+│   ├── fragment.glsl             ← depth sample → linearise → occlude → effect
+│   ├── debug.vert.glsl           ← fullscreen quad passthrough
+│   └── debug.frag.glsl           ← linearised depth as tinted greyscale
 │
 └── utils/
-    ├── depthUtils.js             ← createDepthTarget(), resizeDepthTarget(), lineariseDepth()
-    └── orbitControls.js          ← Manual orbit/pan/zoom; no external dependency
+    ├── depthUtils.js             ← createDepthTarget(), resizeDepthTarget()
+    └── orbitControls.js          ← Manual orbit/pan/zoom — no external dependency
 ```
 
 ---
 
-## 🔧 Technical Deep-Dive
-
-### Why two render passes?
-
-The depth texture must be fully populated **before** the sphere's fragment shader runs — otherwise the sphere would sample a depth buffer that doesn't yet include the occluder. Splitting into a depth pre-pass and a forward pass is the minimal correct architecture:
-
-```
-Frame N:
-  [1] setRenderTarget(depthTarget) → render all geometry → depth_texture is complete
-  [2] setRenderTarget(null)        → render scene → sphere reads from complete depth_texture
-```
+## 🔧 Technical Notes
 
 ### Why linearise depth?
-
-Raw depth buffer values follow a hyperbolic curve (more precision near the camera, less far away). A direct `rawFragDepth > rawSceneDepth` comparison gives incorrect results at depth discontinuities. Linearising both values to camera-space metres makes the comparison consistent across the frustum.
+Raw depth buffer values are non-linear. A direct comparison would produce incorrect results at depth discontinuities. Both values must be converted to linear camera-space metres before comparing.
 
 ```
 linearZ = (2 · near · far) / (far + near − NDC_z · (far − near))
-  where  NDC_z = rawDepth × 2 − 1
+  where NDC_z = rawDepth × 2 − 1
 ```
 
-### Why a depth bias?
+### Why `depthTest: false` on the overlay material?
+Hardware depth testing discards fragments **before** the fragment shader runs. If the overlay is behind an occluder, its fragments would be thrown away before the occlusion test could execute. The shader must own the visibility decision — `depthTest: false` delegates that responsibility from the GPU to the GLSL code.
 
-The sphere's surface sits at exactly `fragDepth ≈ sceneDepth` — it self-occludes without a small tolerance added to `sceneDepth`. The default bias `0.02` is a named constant in `contracts/shaderInterface.js`, not a magic number in the shader.
+### Why exclude the overlay from Pass 1?
+The overlay reads from the depth texture in its fragment shader. Rendering it during the pass that writes to that texture creates a GPU read/write conflict. The driver silently drops the overlay's depth writes. Solution: `sphere.visible = false` during Pass 1, `true` during Pass 2.
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Deployment
 
-**Requirements:** Any WebGL 2 browser (Chrome 56+, Firefox 51+, Safari 15+). No Node.js, no npm, no build tools.
+Push to `main` → GitHub Pages serves automatically. No build step.
 
 ```bash
-# Option A — direct file open
-open index.html
-
-# Option B — local server (required if loading .glsl files as ES modules)
-python3 -m http.server 8080
-
-# Option C — VS Code Live Server
-# Right-click index.html → "Open with Live Server"
+git add .
+git commit -m "your message"
+git push
 ```
-
-**Controls:**
-
-| Input | Action |
-|-------|--------|
-| Left drag | Orbit camera |
-| Right drag | Pan camera |
-| Scroll / Pinch | Zoom |
-| `D` | Toggle depth debug view |
-| `M` | Cycle milestones |
-| `Space` | Pause / resume animation |
 
 ---
 
@@ -339,7 +252,7 @@ python3 -m http.server 8080
 
 - [Learn OpenGL — Depth Testing](https://learnopengl.com/Advanced-OpenGL/Depth-testing)
 - [Three.js — WebGLRenderTarget](https://threejs.org/docs/#api/en/renderers/WebGLRenderTarget)
-- [GLSL — Built-in Variables](https://www.khronos.org/opengl/wiki/Built-in_Variable_(GLSL))
+- [Three.js — InstancedMesh](https://threejs.org/docs/#api/en/objects/InstancedMesh)
 - [Inigo Quilez — Depth Buffer Tricks](https://iquilezles.org/articles/hwinterpolation/)
 - [Real-Time Rendering — Visibility & Occlusion](https://www.realtimerendering.com/)
 
