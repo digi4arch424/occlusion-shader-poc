@@ -170,19 +170,19 @@ Scene  Depth  Shader  Detect Effect Stress
 
 ---
 
-### 🟢 M1 — Basic 3D Scene
+### 🟢 M1 — Basic 3D Scene ✅
 Perspective camera · manual orbit controls · sphere (BIM overlay) + cube (occluder) · 4-light rig · no shaders.
 
-### 🟡 M2 — Depth Buffer Visualisation
+### 🟡 M2 — Depth Buffer Visualisation ✅
 `WebGLRenderTarget` + `DepthTexture` · two-pass frame loop · greyscale debug quad · D key toggle.
 
-### 🟠 M3 — Screen-Space Depth Access
+### 🟠 M3 — Screen-Space Depth Access ✅
 Sphere → `ShaderMaterial` · `vScreenUV` from clip coords · depth sampled and linearised per fragment · shader architecture separated into three boot phases.
 
-### 🔴 M4 — Occlusion Detection Logic
+### 🔴 M4 — Occlusion Detection Logic ✅
 `fragDepth > sceneDepth + uDepthBias` · `depthTest: false` on overlay material (GPU must not discard fragments before shader runs) · green = visible, red = occluded.
 
-### 🔵 M5 — Visual Effects Layer
+### 🔵 M5 — Visual Effects Layer ✅
 Diffuse + ambient shading for visible state · `smoothstep` replaces hard bool · pulsing warm glow + alpha fade when occluded · `uTime`, `uBaseColor`, `uLightDir` uniforms.
 
 ### 🟣 M6 — Stress Test ✅
