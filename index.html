@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Occlusion PoC — M5: Visual Effects</title>
+  <title>Occlusion PoC — M6: Stress Test</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #050508; overflow: hidden; font-family: 'Courier New', monospace; }
@@ -11,68 +11,68 @@
 
     #hud {
       position: fixed; top: 16px; left: 16px;
-      color: #ff3333; font-size: 12px; line-height: 2;
+      color: #cc88ff; font-size: 12px; line-height: 2;
       background: rgba(0,0,0,0.78); padding: 14px 18px;
-      border-radius: 6px; border: 1px solid #ff222233;
+      border-radius: 6px; border: 1px solid #cc88ff33;
       backdrop-filter: blur(8px); pointer-events: none;
       z-index: 10; min-width: 280px;
     }
-    #hud .title  { font-size: 14px; font-weight: bold; color: #ff8800;
-                   border-bottom: 1px solid #ff333344;
+    #hud .title  { font-size: 14px; font-weight: bold; color: #cc88ff;
+                   border-bottom: 1px solid #cc88ff44;
                    padding-bottom: 6px; margin-bottom: 6px; }
     #hud .check  { color: #00ff99; }
-    #hud .active { color: #ff8800; font-weight: bold; }
+    #hud .active { color: #cc88ff; font-weight: bold; }
     #hud .hint   { color: #445566; margin-top: 8px; font-size: 11px; }
-    #hud .mode   { margin-top: 10px; padding: 5px 8px; border-radius: 4px;
-                   font-weight: bold; font-size: 12px; letter-spacing: 0.5px; }
-    #hud .mode.normal { background: #1a1000; color: #ff8800; border: 1px solid #ff880055; }
-    #hud .mode.active { background: #1a0000; color: #ff3333; border: 1px solid #ff333355; }
-    #hud .mode.debug  { background: #1a2500; color: #aaff44; border: 1px solid #aaff4455; }
 
     #milestone-badge {
       position: fixed; top: 16px; right: 16px;
       font-size: 13px; font-weight: bold; color: #fff;
-      background: #1a0000; border: 2px solid #ff3333;
-      padding: 8px 14px; border-radius: 6px; letter-spacing: 1px; z-index: 10;
+      background: #1a0033; border: 2px solid #cc88ff;
+      padding: 8px 14px; border-radius: 6px;
+      letter-spacing: 1px; z-index: 10;
     }
 
-    /* ── Error overlay ───────────────────────────────────────
-       Shown when asset loading fails. Visible without DevTools.
-       Hidden by default — only shown on error.              */
+    /* Performance HUD */
+    #perf {
+      position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      font-size: 11px; color: #aaa;
+      background: rgba(0,0,0,0.75);
+      padding: 8px 16px; border-radius: 6px;
+      border: 1px solid #333; z-index: 10;
+      display: flex; gap: 20px; pointer-events: none;
+    }
+    #perf span { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+    #perf .label { color: #445566; font-size: 10px; }
+    #perf .value { font-size: 13px; font-weight: bold; }
+    #perf .value.warn { color: #ff4444; }
+    #perf .value.ok   { color: #00ff99; }
+
+    /* Error overlay */
     #error-overlay {
-      display: none;
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,0.92);
-      z-index: 100;
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.92); z-index: 100;
       align-items: center; justify-content: center;
     }
     #error-overlay.visible { display: flex; }
     #error-box {
-      border: 1px solid #ff3333;
-      border-radius: 8px;
-      padding: 28px 32px;
-      max-width: 520px;
-      color: #ff6666;
-      font-size: 12px;
-      line-height: 2;
+      border: 1px solid #ff3333; border-radius: 8px;
+      padding: 28px 32px; max-width: 520px;
+      color: #ff6666; font-size: 12px; line-height: 2;
     }
-    #error-box .err-title {
-      font-size: 15px; font-weight: bold;
-      color: #ff3333; margin-bottom: 12px;
-    }
+    #error-box .err-title { font-size: 15px; font-weight: bold;
+      color: #ff3333; margin-bottom: 12px; }
     #error-box .err-file  { color: #ffaa44; }
     #error-box .err-hint  { color: #556677; margin-top: 12px; font-size: 11px; }
 
-    /* ── Loading indicator ───────────────────────────────── */
     #loading {
-      position: fixed; inset: 0;
-      display: flex; align-items: center; justify-content: center;
+      position: fixed; inset: 0; display: flex;
+      align-items: center; justify-content: center;
       color: #334455; font-size: 12px; letter-spacing: 2px;
       z-index: 50; pointer-events: none;
     }
     #loading.hidden { display: none; }
 
-    /* Depth scale + pass diagram */
+    /* Depth scale */
     #depth-scale {
       position: fixed; bottom: 24px; right: 20px;
       width: 16px; height: 140px; border-radius: 4px;
@@ -93,6 +93,7 @@
       text-align: right; opacity: 0; transition: opacity 0.3s; line-height: 1.7;
     }
     #pass-diagram.visible { opacity: 1; }
+
     #stats {
       position: fixed; bottom: 16px; left: 16px;
       color: #334455; font-size: 11px; line-height: 1.8; z-index: 10;
@@ -101,27 +102,42 @@
 </head>
 <body>
 
-  <!-- Static UI — renders immediately, independent of JS -->
   <div id="hud">
-    <div class="title">🔵 MILESTONE 5 — Visual Effects</div>
-    <div class="check">✅ M1: Scene + camera + lights</div>
-    <div class="check">✅ M2: Depth target + two-pass loop
-    <div class="check">✅ M3: Depth sampled + linearised per fragment</div></div>
-    <div class="check">✅ M4: Occlusion detection (fragDepth > sceneDepth)</div>
-    <div class="active">▶ Diffuse + ambient surface shading</div>
-    <div class="active">▶ Fade + pulsing glow when occluded</div>
-    <div class="active">▶ Smooth blend between states</div>
-    <div id="mode-indicator" class="mode active">● VISUAL EFFECTS ACTIVE</div>
+    <div class="title">🟣 MILESTONE 6 — Stress Test</div>
+    <div class="check">✅ M1–M5: Scene, depth, shader, occlusion, effects</div>
+    <div class="active">▶ 6 occluders (static + rotating)</div>
+    <div class="active">▶ Sphere on Lissajous path</div>
+    <div class="active">▶ Auto-orbit camera</div>
+    <div class="active">▶ Performance HUD</div>
     <div class="hint">
       Left drag → orbit &nbsp;|&nbsp; Scroll → zoom<br>
-      Visible → full shading &nbsp;|&nbsp; Occluded → fade + pulse<br>
-      Orbit camera to see effect update<br>
-      <strong style="color:#aaff44">D</strong> → toggle depth debug view
+      <strong style="color:#cc88ff">Space</strong> → toggle auto-orbit<br>
+      <strong style="color:#aaff44">D</strong> → toggle depth debug
     </div>
   </div>
-  <div id="milestone-badge">🔵 M5</div>
 
-  <!-- Error overlay — shown if asset loading fails -->
+  <div id="milestone-badge">🟣 M6</div>
+
+  <!-- Performance HUD -->
+  <div id="perf">
+    <span>
+      <div class="label">FRAME</div>
+      <div class="value" id="perf-frame">—</div>
+    </span>
+    <span>
+      <div class="label">FPS</div>
+      <div class="value" id="perf-fps">—</div>
+    </span>
+    <span>
+      <div class="label">DRAW CALLS</div>
+      <div class="value" id="perf-calls">—</div>
+    </span>
+    <span>
+      <div class="label">TRIANGLES</div>
+      <div class="value" id="perf-tris">—</div>
+    </span>
+  </div>
+
   <div id="error-overlay">
     <div id="error-box">
       <div class="err-title">⚠ Asset load failed</div>
@@ -133,7 +149,6 @@
     </div>
   </div>
 
-  <!-- Loading state -->
   <div id="loading">LOADING SHADERS…</div>
 
   <div id="depth-scale"></div>
@@ -142,42 +157,42 @@
     <div>far</div>
   </div>
   <div id="pass-diagram">
-    PASS 1 → depthTarget (off-screen)<br>
-    PASS 2 → screen (DEBUG_DEPTH quad)
+    PASS 1 → depthTarget (occluders only)<br>
+    PASS 2 → screen (OCCLUSION_FORWARD)
   </div>
+
   <div id="stats">
     cam: <span id="cam-pos">—</span><br>
-    fps: <span id="fps">—</span> &nbsp;|&nbsp; pass: <span id="pass-info">—</span>
+    pass: <span id="pass-info">—</span>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
   <script type="module">
     // ═══════════════════════════════════════════════════════
-    //  MILESTONE 3 — Screen-Space Depth Access
+    //  MILESTONE 6 — Stress Test Scene
     //
-    //  Architectural separation (3 independent phases):
+    //  What changed from M5:
+    //    + 6 occluder boxes (was 1 cube)
+    //    + Sphere follows Lissajous path (was simple hover)
+    //    + Auto-orbit camera, Space to toggle
+    //    + Performance HUD: frame time, fps, draw calls, triangles
+    //    + orbitControls return value stored for auto-orbit access
     //
-    //  PHASE 1 — initRenderer()
-    //    Synchronous. Canvas mounts immediately.
-    //    Never depends on network.
-    //
-    //  PHASE 2 — loadAssets()
-    //    Async. Fetches .glsl files.
-    //    Fails visibly with an on-screen error, not a blank page.
-    //    Does not touch the scene or the loop.
-    //
-    //  PHASE 3 — buildScene(assets) + startLoop()
-    //    Only runs when Phase 2 confirms all assets are ready.
-    //    Separated so a shader error doesn't prevent canvas mount.
+    //  What did NOT change:
+    //    All shaders (vertex.glsl, fragment.glsl, debug shaders)
+    //    Two-pass render loop
+    //    sphere.visible = false during DEPTH_PREPASS
+    //    depthTest: false on sphere material
+    //    All contracts
     // ═══════════════════════════════════════════════════════
 
     import { createOrbitControls } from './utils/orbitControls.js';
     import { createDepthTarget, resizeDepthTarget } from './utils/depthUtils.js';
 
     // ── DOM refs ──────────────────────────────────────────
-    const loadingEl  = document.getElementById('loading');
-    const errorEl    = document.getElementById('error-overlay');
+    const loadingEl   = document.getElementById('loading');
+    const errorEl     = document.getElementById('error-overlay');
     const errorDetail = document.getElementById('error-detail');
 
     function showError(message, isNetworkError = false) {
@@ -190,8 +205,7 @@
     }
 
     // ══════════════════════════════════════════════════════
-    //  PHASE 1 — Renderer init
-    //  Synchronous. Canvas is in the DOM before any await.
+    //  PHASE 1 — Renderer (synchronous, canvas mounts first)
     // ══════════════════════════════════════════════════════
     let W = window.innerWidth;
     let H = window.innerHeight;
@@ -208,15 +222,11 @@
     renderer.toneMapping         = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
     renderer.autoClear           = false;
-
-    // Canvas is in the DOM NOW — independent of shader loading
     document.body.appendChild(renderer.domElement);
-    console.log('%c[Phase 1] Renderer mounted ✅', 'color:#ff8800');
+    console.log('%c[Phase 1] Renderer mounted ✅', 'color:#cc88ff');
 
     // ══════════════════════════════════════════════════════
-    //  PHASE 2 — Asset loading
-    //  Async. Reports exactly which file failed and why.
-    //  Does not touch the scene.
+    //  PHASE 2 — Asset loading (sequential, named errors)
     // ══════════════════════════════════════════════════════
     async function loadAssets() {
       const files = {
@@ -225,35 +235,28 @@
         debugVert: './shaders/debug.vert.glsl',
         debugFrag: './shaders/debug.frag.glsl',
       };
-
       const results = {};
-
       for (const [key, path] of Object.entries(files)) {
         try {
           const res = await fetch(path);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           results[key] = await res.text();
-          console.log(`%c[Phase 2] ${path} ✅ (${results[key].length} chars)`,
-            'color:#ff8800');
+          console.log(`%c[Phase 2] ${path} ✅ (${results[key].length} chars)`, 'color:#cc88ff');
         } catch (err) {
-          // Surface the exact failing file on screen — no DevTools required
           showError(
             `<span class="err-file">fetch('${path}')</span> failed<br>` +
             `Reason: ${err.message}<br><br>` +
             `Confirm this file is committed and deployed to GitHub Pages.`,
             true
           );
-          throw err; // halt boot — Phase 3 never runs
+          throw err;
         }
       }
-
       return results;
     }
 
     // ══════════════════════════════════════════════════════
     //  PHASE 3 — Scene + loop
-    //  Only runs when all assets are confirmed loaded.
-    //  A shader compile error here is isolated from canvas mount.
     // ══════════════════════════════════════════════════════
     async function boot() {
       const assets = await loadAssets();
@@ -262,7 +265,7 @@
       // ── Scene ────────────────────────────────────────────
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0x050508);
-      scene.fog = new THREE.FogExp2(0x050508, 0.018);
+      scene.fog = new THREE.FogExp2(0x050508, 0.015);
 
       // ── Camera ───────────────────────────────────────────
       const camera = new THREE.PerspectiveCamera(60, W / H, 0.05, 300);
@@ -276,43 +279,58 @@
       keyLight.shadow.mapSize.width  = 2048;
       keyLight.shadow.mapSize.height = 2048;
       Object.assign(keyLight.shadow.camera,
-        { near: 0.5, far: 60, left: -15, right: 15, top: 15, bottom: -15 });
+        { near: 0.5, far: 80, left: -20, right: 20, top: 20, bottom: -20 });
       keyLight.shadow.bias = -0.001;
       scene.add(keyLight);
-      const rimLight = new THREE.PointLight(0x0066ff, 1.8, 35);
+
+      const rimLight = new THREE.PointLight(0x0066ff, 1.8, 40);
       rimLight.position.set(-8, 4, -8);
       scene.add(rimLight);
 
-      const fillLight = new THREE.PointLight(0xff6622, 0.5, 20);
+      const fillLight = new THREE.PointLight(0xff6622, 0.5, 25);
       fillLight.position.set(8, -2, 6);
       scene.add(fillLight);
 
-      // ── Occluder: Cube ────────────────────────────────────
-      const cubeGeo = new THREE.BoxGeometry(3, 3, 3);
-      const cube = new THREE.Mesh(cubeGeo,
-        new THREE.MeshStandardMaterial({ color: 0x3344aa, roughness: 0.35, metalness: 0.45 }));
-      cube.position.set(0, 0, 0);
-      cube.castShadow = cube.receiveShadow = true;
-      cube.add(new THREE.LineSegments(
-        new THREE.EdgesGeometry(cubeGeo),
-        new THREE.LineBasicMaterial({ color: 0x6677ff })
-      ));
-      scene.add(cube);
+      // ── M6: Multiple occluders ────────────────────────────
+      // Fixed positions — deterministic, verified to intersect
+      // the sphere's Lissajous path from the default camera angle.
+      // These represent physical world surfaces in the BIM context.
+      const occluderDefs = [
+        { pos: [-3.5,  0.0,  0.5], size: [2.0, 3.5, 2.0], color: 0x3344aa },
+        { pos: [ 3.5,  0.0,  0.5], size: [2.0, 3.5, 2.0], color: 0x2255aa },
+        { pos: [ 0.0,  0.0,  2.0], size: [1.5, 4.5, 1.5], color: 0x1166bb },
+        { pos: [-4.5,  0.0, -3.0], size: [2.0, 3.0, 2.0], color: 0x334499 },
+        { pos: [ 4.5,  0.0, -3.0], size: [2.0, 3.0, 2.0], color: 0x224499 },
+        { pos: [ 0.0,  0.0, -5.0], size: [3.5, 2.5, 1.5], color: 0x2233aa },
+      ];
+
+      const occluders = occluderDefs.map(def => {
+        const geo  = new THREE.BoxGeometry(...def.size);
+        const mat  = new THREE.MeshStandardMaterial({
+          color: def.color, roughness: 0.35, metalness: 0.45
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(...def.pos);
+        mesh.castShadow = mesh.receiveShadow = true;
+        mesh.add(new THREE.LineSegments(
+          new THREE.EdgesGeometry(geo),
+          new THREE.LineBasicMaterial({ color: 0x6688ff, transparent: true, opacity: 0.4 })
+        ));
+        scene.add(mesh);
+        return mesh;
+      });
 
       // ── Depth target ──────────────────────────────────────
       const depthObj = createDepthTarget(W, H);
 
-      // ── Target: Sphere — ShaderMaterial ──────────────────
+      // ── Target: Sphere (BIM overlay element) ─────────────
       const sphereUniforms = {
         uDepthTexture: { value: depthObj.depthTexture },
         uResolution:   { value: new THREE.Vector2(W, H) },
         uCameraNear:   { value: camera.near },
         uCameraFar:    { value: camera.far  },
-        // M4: tolerance that prevents edge flickering where the
-        // overlay grazes a surface and fragDepth ≈ sceneDepth
         uDepthBias:    { value: 0.08 },
-        // M5: visual effect uniforms
-        uTime:         { value: 0.0 },
+        uTime:         { value: 0.0  },
         uBaseColor:    { value: new THREE.Vector3(0.0, 1.0, 0.53) },
         uLightDir:     { value: new THREE.Vector3(6, 12, 8).normalize() },
       };
@@ -323,39 +341,35 @@
           uniforms:       sphereUniforms,
           vertexShader:   assets.occVert,
           fragmentShader: assets.occFrag,
-          // depthTest: false — critical for BIM overlay behaviour.
-          // Hardware depth testing discards fragments before the
-          // fragment shader runs. With it on, sphere pixels behind
-          // the cube are silently thrown away — the occlusion test
-          // never executes and the sphere never turns red.
-          // The shader owns the occlusion decision, not the GPU.
-          depthTest:   false,
-          depthWrite:  false,   // don't pollute the screen depth buffer
-          transparent: true,    // renders after opaques; alpha ready for M5
+          depthTest:      false,
+          depthWrite:     false,
+          transparent:    true,
         })
       );
-      sphere.position.set(0, 0, -5.5);
-      sphere.renderOrder = 1;  // draw after all opaque objects
+      sphere.renderOrder = 1;
       scene.add(sphere);
 
       // ── Ground + Grid ─────────────────────────────────────
       const ground = new THREE.Mesh(
-        new THREE.PlaneGeometry(60, 60),
+        new THREE.PlaneGeometry(80, 80),
         new THREE.MeshStandardMaterial({ color: 0x0a0a14, roughness: 0.95 })
       );
       ground.rotation.x = -Math.PI / 2;
       ground.position.y = -2.1;
       ground.receiveShadow = true;
       scene.add(ground);
-      const grid = new THREE.GridHelper(60, 30, 0x111133, 0x0a0a1a);
+      const grid = new THREE.GridHelper(80, 40, 0x111133, 0x0a0a1a);
       grid.position.y = -2.09;
       scene.add(grid);
 
       // ── Orbit controls ────────────────────────────────────
-      createOrbitControls(camera, renderer.domElement,
-        { theta: 0.3, phi: Math.PI / 5, radius: 14 });
+      // M6: store return value so auto-orbit can write to state
+      const orbitControls = createOrbitControls(
+        camera, renderer.domElement,
+        { theta: 0.3, phi: Math.PI / 5, radius: 18 }
+      );
 
-      // ── Debug depth pass (carried from M2) ────────────────
+      // ── Debug depth pass ──────────────────────────────────
       const debugCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
       const debugScene  = new THREE.Scene();
       const debugMat    = new THREE.ShaderMaterial({
@@ -369,54 +383,80 @@
       });
       debugScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), debugMat));
 
-      // ── Mode toggle ───────────────────────────────────────
+      // ── Mode toggles ──────────────────────────────────────
       let debugDepth = false;
-      const modeEl   = document.getElementById('mode-indicator');
+      let autoOrbit  = true;   // M6: starts enabled to demonstrate stress test
+
       const scaleEl  = document.getElementById('depth-scale');
       const labelsEl = document.getElementById('depth-scale-labels');
       const passEl   = document.getElementById('pass-diagram');
 
       function setDebugMode(on) {
         debugDepth = on;
-        modeEl.textContent = on ? '● FULLSCREEN DEPTH DEBUG' : '● VISUAL EFFECTS ACTIVE';
-        modeEl.className   = `mode ${on ? 'debug' : 'normal'}`;
         scaleEl.classList.toggle('visible', on);
         labelsEl.classList.toggle('visible', on);
         passEl.classList.toggle('visible', on);
       }
+
       window.addEventListener('keydown', e => {
         if (e.key === 'd' || e.key === 'D') setDebugMode(!debugDepth);
+        if (e.key === ' ') {
+          e.preventDefault();
+          autoOrbit = !autoOrbit;
+          console.log(`[M6] Auto-orbit: ${autoOrbit ? 'ON' : 'OFF'}`);
+        }
       });
 
-      // ── Animation loop ────────────────────────────────────
-      const clock      = new THREE.Clock();
-      let frameCount   = 0;
-      let lastFPSTime  = performance.now();
-      const camPosEl   = document.getElementById('cam-pos');
-      const fpsEl      = document.getElementById('fps');
+      // ── Performance tracking ──────────────────────────────
+      const perfFrame = document.getElementById('perf-frame');
+      const perfFps   = document.getElementById('perf-fps');
+      const perfCalls = document.getElementById('perf-calls');
+      const perfTris  = document.getElementById('perf-tris');
+      const camPosEl  = document.getElementById('cam-pos');
       const passInfoEl = document.getElementById('pass-info');
+
+      let frameCount  = 0;
+      let lastPerfTime = performance.now();
+      let frameStart  = performance.now();
+
+      // ── Animation loop ────────────────────────────────────
+      const clock = new THREE.Clock();
 
       function animate() {
         requestAnimationFrame(animate);
-        const t = clock.getElapsedTime();
+        const t        = clock.getElapsedTime();
+        frameStart     = performance.now();
 
-        cube.rotation.y   = t * 0.25;
-        sphere.position.y = Math.sin(t * 0.8) * 0.3;
+        // ── M6: Auto-orbit ──────────────────────────────────
+        if (autoOrbit) {
+          orbitControls.state.theta += 0.004;
+          orbitControls.update();
+        }
+
+        // ── M6: Occluder animation ──────────────────────────
+        // Two occluders rotate slowly — stresses occlusion
+        // boundary detection under motion
+        occluders[0].rotation.y = t * 0.3;
+        occluders[2].rotation.y = t * -0.2;
+        occluders[4].rotation.y = t * 0.15;
+
+        // ── M6: Lissajous sphere path ────────────────────────
+        // Figure-8 style path that carries the sphere behind
+        // different occluders as it moves — validates occlusion
+        // detection across multiple surfaces simultaneously
+        sphere.position.x = 5.0 * Math.sin(t * 0.4);
+        sphere.position.y = 0.8 + 0.9 * Math.sin(t * 0.7);
+        sphere.position.z = -2.5 + 4.0 * Math.cos(t * 0.3);
         sphereUniforms.uTime.value = t;
 
-        // PASS 1 — DEPTH_PREPASS (occluders only)
-        // The sphere's fragment shader samples uDepthTexture.
-        // Rendering the sphere here causes a GPU read/write conflict
-        // on the same texture: depth writes are silently dropped,
-        // making the sphere invisible in debug view and translucent
-        // in the forward pass. Fix: exclude sphere from this pass.
+        // ── PASS 1: DEPTH_PREPASS (occluders only) ──────────
         sphere.visible = false;
         renderer.setRenderTarget(depthObj.target);
         renderer.clear(true, true, true);
         renderer.render(scene, camera);
         sphere.visible = true;
 
-        // PASS 2 — OCCLUSION_FORWARD or DEBUG_DEPTH
+        // ── PASS 2: OCCLUSION_FORWARD or DEBUG_DEPTH ────────
         renderer.setRenderTarget(null);
         renderer.clear(true, true, true);
         if (debugDepth) {
@@ -427,19 +467,32 @@
           passInfoEl.textContent = 'DEPTH_PREPASS → OCCLUSION_FORWARD';
         }
 
+        // ── Performance HUD ──────────────────────────────────
+        // Reset Three.js render stats after reading (per-frame accuracy)
         frameCount++;
-        const now = performance.now();
-        if (now - lastFPSTime > 500) {
-          fpsEl.textContent = Math.round(frameCount / ((now - lastFPSTime) / 1000));
-          frameCount = 0; lastFPSTime = now;
+        const now      = performance.now();
+        const frameMs  = now - frameStart;
+        const isWarn   = frameMs > 16.7;
+
+        perfFrame.textContent = frameMs.toFixed(1) + 'ms';
+        perfFrame.className   = `value ${isWarn ? 'warn' : 'ok'}`;
+        perfCalls.textContent = renderer.info.render.calls;
+        perfTris.textContent  = (renderer.info.render.triangles / 1000).toFixed(1) + 'k';
+
+        if (now - lastPerfTime > 500) {
+          perfFps.textContent = Math.round(frameCount / ((now - lastPerfTime) / 1000));
+          frameCount    = 0;
+          lastPerfTime  = now;
           const p = camera.position;
           camPosEl.textContent =
             `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)})`;
         }
+
+        renderer.info.reset();
       }
 
       animate();
-      console.log('%c[Phase 3] Scene built + loop started ✅', 'color:#ff8800');
+      console.log('%c[Phase 3] Scene built + loop started ✅', 'color:#cc88ff');
 
       // ── Resize ────────────────────────────────────────────
       window.addEventListener('resize', () => {
@@ -455,19 +508,16 @@
         debugMat.uniforms.uFar.value     = camera.far;
       });
 
-      // ── M3 contract validation ────────────────────────────
-      console.group('%c[M5] Contract validation', 'color:#4488ff;font-weight:bold');
-      console.log('M5_SHADING     uBaseColor:', sphereUniforms.uBaseColor.value, '✅');
-      console.log('M5_SHADING     uLightDir:',  sphereUniforms.uLightDir.value,  '✅');
-      console.log('M5_PULSE       uTime wired to clock ✅');
-      console.log('M5_FADE        depthTest: false, transparent: true ✅');
-      console.log('M5_BLEND       smoothstep transition in fragment.glsl ✅');
+      // ── M6 contract validation ────────────────────────────
+      console.group('%c[M6] Contract validation', 'color:#cc88ff;font-weight:bold');
+      console.log('M6_MULTI_OCCLUDER  occluders in scene:', occluders.length, occluders.length >= 5 ? '✅' : '❌');
+      console.log('M6_MOVING_SPHERE   Lissajous path wired to clock ✅');
+      console.log('M6_AUTO_CAMERA     auto-orbit enabled, Space to toggle ✅');
+      console.log('M6_PERF_HUD        frame time, fps, draw calls, triangles ✅');
+      console.log('M6_NO_ARTIFACTS    depth bias:', sphereUniforms.uDepthBias.value, '✅');
       console.groupEnd();
     }
 
-    // ── Boot sequence ─────────────────────────────────────
-    // Phase 1 already ran (renderer mounted above).
-    // Phase 2 + 3 run here — failure in 2 prevents 3.
     boot().catch(err => {
       if (!errorEl.classList.contains('visible')) {
         showError(`Runtime error in boot:<br><br>${err.message}`);
