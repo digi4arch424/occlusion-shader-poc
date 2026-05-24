@@ -13,9 +13,7 @@
 
 Hosted on GitHub Pages — no build step, no install, no local server required.
 
-```
-https://YOUR_USERNAME.github.io/occlusion-shader-poc/
-```
+Live site: https://digi4arch424.github.io/occlusion-shader-poc/
 
 ---
 
